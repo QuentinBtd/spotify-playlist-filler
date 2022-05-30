@@ -1,0 +1,18 @@
+SPOTIFY_SECRET: "Your Spotify Secret"
+SPOTIFY_ID: "Your Spotify ID"
+playlists:
+  - name: "Playlist Filler Test"
+    uri: 3RiBOmtagQlYUd2XOeWPUd
+    artists:
+      - name: "Rick Astley" # Optional, except if you use 'use_name_instead_of_uri: true'
+        uri: 0gxyHStUsqpMadRV0Di1Qt
+        use_name_instead_of_uri: false 
+        albums_to_skip: # Optional
+          - name: "Beautiful Life"
+            uri: 3IqiZzsC1gef7qgvCXTqTj
+      - name: "Imagine Dragons" # Optional, except if you use 'use_name_instead_of_uri: true'
+        use_name_instead_of_uri: true # Will use the artist's name instead of the artist's uri by searching it on Spotify
+    albums_to_skip: # You can set almbums to skip here
+      - name: "Rick Astley - 50"
+        uri: 7IW3NEq3Fxtm7FhOcosnBy
+verbose: false
