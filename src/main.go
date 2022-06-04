@@ -20,23 +20,23 @@ import (
 )
 
 type Config struct {
-	Verbose		 			bool				`yaml:"verbose"`
-	SpotifyId	  			string	 			`yaml:"SPOTIFY_ID"`
-	SpotifySecret			string	 			`yaml:"SPOTIFY_SECRET"`
-	PlaylistsToFill 		[]PlaylistsToFill 	`yaml:"playlists"`
+	Verbose					bool				`yaml:"verbose"`
+	SpotifyId				string				`yaml:"SPOTIFY_ID"`
+	SpotifySecret			string				`yaml:"SPOTIFY_SECRET"`
+	PlaylistsToFill			[]PlaylistsToFill	`yaml:"playlists"`
 }
 
 type PlaylistsToFill struct {
-	Name				 	string  			`yaml:"name"`
-	Uri	  					spotify.ID  		`yaml:"uri"`
-	Artists  				[]Artist			`yaml:"artists"`
-	SkippedAlbums	  	  	[]SkippedAlbums 	`yaml:"albums_to_skip"`
+	Name					string				`yaml:"name"`
+	Uri						spotify.ID			`yaml:"uri"`
+	Artists					[]Artist			`yaml:"artists"`
+	SkippedAlbums			[]SkippedAlbums		`yaml:"albums_to_skip"`
 }
 
 type Artist struct {
-	Name			   	  	string		   		`yaml:"name"`
-	Uri						spotify.ID	   		`yaml:"uri"`
-	SkippedAlbums	  	  	[]SkippedAlbums 	`yaml:"albums_to_skip"`
+	Name					string				`yaml:"name"`
+	Uri						spotify.ID			`yaml:"uri"`
+	SkippedAlbums	  	  	[]SkippedAlbums		`yaml:"albums_to_skip"`
 	UseNameInsteadOfUri		bool				`yaml:"use_name_instead_of_uri"`
 }
 
