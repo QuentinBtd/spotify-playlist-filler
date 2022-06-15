@@ -273,12 +273,14 @@ func getTracksToAdd(client *spotify.Client, playlist PlaylistsToFill) ([]ItemInf
 					log.Fatal(err)
 				}
 				for _, track := range _tracksList {
-					tracksList = append(tracksList,
-						ItemInfos{
-							Uri:	track.Uri,
-							Name:	track.Name,
-						},
-					)
+					if !idInSlice(track.Uri, tracksList) {
+						tracksList = append(tracksList,
+							ItemInfos{
+								Uri:	track.Uri,
+								Name:	track.Name,
+							},
+						)
+					}
 				}
 				time.Sleep(200 * time.Millisecond)
 			}
