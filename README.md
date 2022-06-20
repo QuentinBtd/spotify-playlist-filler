@@ -13,6 +13,7 @@ SPOTIFY_ID: "Your Spotify ID"
 PLAYLISTS_TO_FILL:
   - name: "Playlist Filler Test"
     uri: 3RiBOmtagQlYUd2XOeWPUd
+    shuffle_order: true # Will remove all tracks and add them in shuffled order
     artists:
       - name: "Rick Astley" # Optional, except if you use 'use_name_instead_of_uri: true'
         uri: 0gxyHStUsqpMadRV0Di1Qt
