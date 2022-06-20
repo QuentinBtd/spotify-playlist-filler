@@ -29,6 +29,7 @@ type Config struct {
 type PlaylistsToFill struct {
 	Name					string				`yaml:"name"`
 	Uri						spotify.ID			`yaml:"uri"`
+	ShuffleOrder			bool				`yaml:"shuffle_order"`
 	Artists					[]Artist			`yaml:"artists"`
 	SkippedAlbums			[]SkippedAlbums		`yaml:"albums_to_skip"`
 }
@@ -140,9 +141,16 @@ func main() {
 		currentTracksList, _ := getPlaylistCurrentTracks(client, playlist.Uri)
 		newTracksList, _ := getTracksToAdd(client, playlist)
 		tracksToRemove := getTracksToRemove(currentTracksList, newTracksList)
-		newTracksList = cleanTracksToAdd(currentTracksList, newTracksList)
-		log.Printf("Found %d tracks to add and %d tracks to remove", len(newTracksList), len(tracksToRemove))
-		removeTracks(client, playlist.Uri, tracksToRemove)
+		if playlist.ShuffleOrder {
+			log.Printf("Found %d tracks to add and %d tracks to remove", len(newTracksList), len(tracksToRemove))
+			log.Printf("Shuffling tracks is enabled, all tracks will be removed, then added in shuffled order")
+			removeTracks(client, playlist.Uri, currentTracksList)
+			newTracksList = shuffleTracks(newTracksList)
+		} else {
+			newTracksList = cleanTracksToAdd(currentTracksList, newTracksList)
+			log.Printf("Found %d tracks to add and %d tracks to remove", len(newTracksList), len(tracksToRemove))
+			removeTracks(client, playlist.Uri, tracksToRemove)
+		}
 		addTracks(client, playlist.Uri, newTracksList)
 	}
 }
@@ -381,6 +389,12 @@ func cleanTracksToAdd(currentTracksList []ItemInfos, tracksToAdd []ItemInfos) ([
 		}
 	}
 	return cleanedTracksToAdd
+}
+
+func shuffleTracks(tracksList []ItemInfos) ([]ItemInfos) {
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(tracksList), func(i, j int) { tracksList[i], tracksList[j] = tracksList[j], tracksList[i] })
+	return tracksList
 }
 
 func idInSlice(id spotify.ID, list []ItemInfos) bool {
