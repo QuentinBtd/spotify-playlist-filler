@@ -1,22 +1,22 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"log"
-	"os"
 	"io/ioutil"
-	"strconv"
-	"context"
-	"net/http"
+	"log"
 	"math/rand"
-	"time"
+	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/zmb3/spotify/v2"
 	spotifyauth "github.com/zmb3/spotify/v2/auth"
-	"gopkg.in/yaml.v2"
 	"golang.org/x/oauth2/clientcredentials"
+	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
@@ -142,16 +142,20 @@ func main() {
 		newTracksList, _ := getTracksToAdd(client, playlist)
 		tracksToRemove := getTracksToRemove(currentTracksList, newTracksList)
 		if playlist.ShuffleOrder {
-			log.Printf("Found %d tracks to add and %d tracks to remove", len(newTracksList), len(tracksToRemove))
+			log.Printf("Found %d new tracks to add and %d tracks to remove", (len(newTracksList) - len(currentTracksList)), len(tracksToRemove))
 			log.Printf("Shuffling tracks is enabled, all tracks will be removed, then added in shuffled order")
 			removeTracks(client, playlist.Uri, currentTracksList)
 			newTracksList = shuffleTracks(newTracksList)
 		} else {
 			newTracksList = cleanTracksToAdd(currentTracksList, newTracksList)
-			log.Printf("Found %d tracks to add and %d tracks to remove", len(newTracksList), len(tracksToRemove))
-			removeTracks(client, playlist.Uri, tracksToRemove)
+			log.Printf("Found %d new tracks to add and %d tracks to remove", len(newTracksList), len(tracksToRemove))
+			if len(tracksToRemove) > 0 {
+				removeTracks(client, playlist.Uri, tracksToRemove)
+			}
 		}
-		addTracks(client, playlist.Uri, newTracksList)
+		if len(newTracksList) > 0 {
+			addTracks(client, playlist.Uri, newTracksList)
+		}
 	}
 }
 
