@@ -142,7 +142,7 @@ func main() {
 		newTracksList, _ := getTracksToAdd(client, playlist)
 		tracksToRemove := getTracksToRemove(currentTracksList, newTracksList)
 		if playlist.ShuffleOrder {
-			log.Printf("Found %d new tracks to add and %d tracks to remove", (len(newTracksList) - len(currentTracksList)), len(tracksToRemove))
+			log.Printf("Found %d new tracks to add and %d tracks to remove", (len(newTracksList) - (len(currentTracksList) - len(tracksToRemove))), len(tracksToRemove))
 			log.Printf("Shuffling tracks is enabled, all tracks will be removed, then added in shuffled order")
 			removeTracks(client, playlist.Uri, currentTracksList)
 			newTracksList = shuffleTracks(newTracksList)
