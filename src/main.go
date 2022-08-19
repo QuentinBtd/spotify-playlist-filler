@@ -4,11 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"log"
 	"math/rand"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -59,7 +58,7 @@ const redirectURI = "http://localhost:8080/callback"
 
 var (
 	config Config
-	auth  = spotifyauth.New(spotifyauth.WithRedirectURL(redirectURI), spotifyauth.WithScopes(spotifyauth.ScopeUserReadPrivate, spotifyauth.ScopePlaylistModifyPublic, spotifyauth.ScopePlaylistModifyPrivate, spotifyauth.ScopeUserLibraryRead, spotifyauth.ScopeUserLibraryModify))
+	auth *spotifyauth.Authenticator
 	ch    = make(chan *spotify.Client)
 	state = RandomString(32)
 	SkippedAlbumsIdList []ItemInfos
@@ -67,34 +66,10 @@ var (
 
 
 func main() {
-	// first start an HTTP server
-	http.HandleFunc("/callback", completeAuth)
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("Got request for:", r.URL.String())
-	})
-	go func() {
-		err := http.ListenAndServe(":8080", nil)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
-
-	url := auth.AuthURL(state)
-	fmt.Println("Please log in to Spotify by visiting the following page in your browser:", url)
-
-	// wait for auth to complete
-	client := <-ch
-
-	// use the client to make calls that require authorization
-	user, err := client.CurrentUser(context.Background())
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("You are logged in as:", user.ID)
 
 	// Load config
 	configPath := flag.String("config", "config.yml", "Config path")
-	yamlFile, err := ioutil.ReadFile(*configPath)
+	yamlFile, err := os.ReadFile(*configPath)
 	if err != nil {
 		log.Printf("yamlFile.Get err   #%v ", err)
 	}
@@ -102,8 +77,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unmarshal: %v", err)
 	}
-
-	log.Printf("ID %s", config.SpotifyId)
 
 	envSpotifyId := os.Getenv("SPOTIFY_ID")
 	envSpotifySecret := os.Getenv("SPOTIFY_SECRET")
@@ -119,10 +92,35 @@ func main() {
 		config.Verbose, _ = strconv.ParseBool(envSpfVerbose)
 	}
 
+	// first start an HTTP server
+	http.HandleFunc("/callback", completeAuth)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("Got request for:", r.URL.String())
+	})
+	go func() {
+		err := http.ListenAndServe(":8080", nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 
-	// ---
+	// Set auth with client ID and SECRET
+	auth = spotifyauth.New(spotifyauth.WithClientID(config.SpotifyId), spotifyauth.WithClientSecret(config.SpotifySecret), spotifyauth.WithRedirectURL(redirectURI), spotifyauth.WithScopes(spotifyauth.ScopeUserReadPrivate, spotifyauth.ScopePlaylistModifyPublic, spotifyauth.ScopePlaylistModifyPrivate, spotifyauth.ScopeUserLibraryRead, spotifyauth.ScopeUserLibraryModify))
 
-	// ctx := context.Background()
+	url := auth.AuthURL(state)
+	fmt.Println("Please log in to Spotify by visiting the following page in your browser:", url)
+
+	// wait for auth to complete
+	client := <-ch
+
+	// use the client to make calls that require authorization
+	user, err := client.CurrentUser(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("You are logged in as:", user.ID)
+
+
 	credentialsConfig := &clientcredentials.Config{
 		ClientID:     config.SpotifyId,
 		ClientSecret: config.SpotifySecret,
