@@ -6,18 +6,34 @@ tool, not an append-only importer: back up important playlists before running it
 
 ## Requirements and setup
 
-- Go 1.26 or newer to build from source.
+- Install mise following its official getting-started documentation
+  (`https://mise.jdx.dev/getting-started.html`) and put `mise` on your `PATH`.
+  Use an official package manager or release archive; when downloading a release
+  archive, verify its SHA-256 against that release's official `SHASUMS256.txt`.
+- Go **1.27.1** is installed and selected by the repository's **`.mise.toml`**.
+  `go.mod` retains Go 1.26 as the module's minimum, not the development pin.
+- Bash and standard filesystem utilities must be available on the system for
+  tasks. The race detector also needs a supported host and a system C compiler
+  (GCC on Linux or Xcode Command Line Tools on macOS). Mise installs Go here,
+  not those operating-system prerequisites. On Windows use WSL for these tasks;
+  cross-building Windows executables from Linux/macOS needs no Windows compiler.
 - A Spotify developer application and an account allowed to modify the playlists.
 - Register **`http://127.0.0.1:8080/callback`** in your application's redirect URIs.
   Spotify requires an explicit loopback IP, not `localhost`.
 - Run on the same machine as your browser, with local TCP port 8080 available.
 
+From the repository root, review `.mise.toml` before trusting it, then install
+its pinned toolchain (no shell activation is needed for `mise run`):
+
 ```sh
+mise trust .mise.toml
+mise install
+mise tasks
 cp config.example.yml config.yml
 # Edit config.yml: select your own playlists and artists.
 export SPOTIFY_ID='your-client-id'
 export SPOTIFY_SECRET='your-client-secret'
-make build
+mise run build
 ./bin/spotify-playlist-filler -config config.yml
 ```
 
@@ -31,7 +47,7 @@ Spotify's app access restrictions and API availability still apply.
 A single positional config path also works:
 
 ```sh
-go run ./cmd/spotify-playlist-filler -config /path/to/config.yml
+mise exec -- go run ./cmd/spotify-playlist-filler -config /path/to/config.yml
 ./bin/spotify-playlist-filler /path/to/config.yml
 ```
 
@@ -111,25 +127,52 @@ Tests use in-memory catalogues and local HTTP fixtures, never a real playlist.
 
 ## Development and builds
 
+All tools and task implementations are centralized in `.mise.toml`; Go is the
+only managed tool (its standard tools include `gofmt` and `go vet`). There is no
+separate Makefile or cross-build script to keep in sync.
+
 ```sh
-make fmt
-make check       # tests, vet and gofmt check
-make race        # go test -race ./...
-make build       # bin/spotify-playlist-filler
-make build-all   # Linux/macOS/Windows, amd64 and arm64, under build/
-make clean       # remove only local build and coverage artifacts
+mise tasks           # list tasks and descriptions
+mise run help        # same list; mise run also shows it by default
+mise run fmt         # format packages; report changed files or already formatted
+mise run test        # go test ./...
+mise run vet         # go vet ./...
+mise run check       # tests, vet and fail-safe gofmt check; does not modify files
+mise run race        # go test -race ./...; requires system C compiler
+mise run build       # bin/spotify-playlist-filler
+mise run build-all   # six cross-builds under build/
+mise run clean       # remove only bin/, build/ and coverage.out
+mise run run         # starts real Spotify authorization; CONFIG defaults to config.yml
 ```
 
-`GO` can override the Go executable; `CONFIG` changes the `make run` config path.
-`make exec` remains an alias for `make run`. `bash build.sh [binary-name]` works
-from any working directory and no longer deletes the global Go build cache.
-Cross-builds are limited to the six explicitly supported desktop/server targets.
+`mise run exec` is an alias for `mise run run`. Override the config path with
+`CONFIG=/path/to/config.yml mise run run`. Extra CLI arguments are forwarded:
+`mise run run -- --help` prints usage without reading configuration or contacting
+Spotify. For other direct Go commands use `mise exec -- go ...` to select the
+pinned toolchain without shell activation; the former `GO` override is removed.
+Tasks always run at the configuration/repository root, even from a subdirectory.
+
+Cross-builds use `VERSION` in their names and `CGO_ENABLED=0`, with `-trimpath`:
+`build/spotify-playlist-filler-<VERSION>-<os>-<arch>` (plus `.exe` on Windows).
+Targets are Linux, macOS (`darwin`) and Windows, each for amd64 and arm64.
+An optional filename prefix is accepted: `mise run build-all custom-name`.
+The package being compiled remains `./cmd/spotify-playlist-filler`; invalid names
+or more than one argument are rejected. `clean` never removes source files,
+configuration, dependencies or the global Go cache.
+
+### Migration from Make and the shell build script
+
+Replace former `make <target>` commands with `mise run <target>` after
+`mise trust .mise.toml` and `mise install`. Replace `bash build.sh [binary-name]`
+with `mise run build-all [binary-name]`; both old files are removed. Existing
+`CONFIG` usage and the `exec` alias remain supported. No GitHub Actions workflow
+is added by this migration; CI automation is deferred.
 
 ## Migration from the original layout
 
 - `src/main.go` is replaced by `cmd/spotify-playlist-filler`; use
   `go run ./cmd/spotify-playlist-filler`, not `go run src/main.go`.
-- The formerly committed root binary is removed; use `make build` and `bin/`.
+- The formerly committed root binary is removed; use `mise run build` and `bin/`.
 - `config.yml` is now a local ignored file; copy `config.example.yml` on a fresh
   checkout. Existing YAML keys including `uri` and `playlists` are unchanged.
 - The old README's `PLAYLISTS_TO_FILL` key was never implemented. Use `playlists`;
