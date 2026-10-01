@@ -1,25 +1,40 @@
-PROJECT_VERSION="$(shell cat VERSION)"
-PROJECT_NAME="spotify-playlist-filler"
+GO ?= go
+BINARY := spotify-playlist-filler
+CONFIG ?= config.yml
 
-# Defines the default target that `make` will to try to make,
-# or in the case of a phony target, execute the specified commands
-# This target is executed whenever we just type `make`
-.DEFAULT_GOAL = help
+.DEFAULT_GOAL := help
+.PHONY: help run exec build build-all test race vet fmt check clean
 
-# The @ makes sure that the command itself isn't echoed in the terminal
-help: # Print help on Makefile
-	@echo "Sample project version $(PROJECT_VERSION)"
-	@echo ""
-	@echo "Please use 'make <target>' where <target> is one of"
-	@echo ""
-	@grep '^[^.#]\+:\s\+.*#' Makefile | \
-	sed "s/\(.\+\):\s*\(.*\) #\s*\(.*\)/`printf "\033[93m"`  \1`printf "\033[0m"`	\3 [\2]/" | \
-	expand -35
-	@echo ""
-	@echo "Check the Makefile to know exactly what each target is doing."
+help:
+	@printf '%s\n' 'Targets: run, build, build-all, test, race, vet, fmt, check, clean' 'Override GO or CONFIG as needed.'
 
-exec: # Execute this program
-	@go run src/main.go
+run:
+	$(GO) run ./cmd/$(BINARY) -config "$(CONFIG)"
 
-build: # Build this program for all platforms
-	@bash build.sh $(PROJECT_NAME)
+# Compatibility alias for the previous Makefile.
+exec: run
+
+build:
+	mkdir -p bin
+	$(GO) build -trimpath -o bin/$(BINARY) ./cmd/$(BINARY)
+
+build-all:
+	GO="$(GO)" bash ./build.sh
+
+test:
+	$(GO) test ./...
+
+race:
+	$(GO) test -race ./...
+
+vet:
+	$(GO) vet ./...
+
+fmt:
+	$(GO) fmt ./...
+
+check: test vet
+	@test -z "$$(gofmt -l cmd internal)" || { printf '%s\n' 'Run make fmt'; exit 1; }
+
+clean:
+	rm -rf bin build coverage.out
