@@ -102,7 +102,6 @@ internal/config/             YAML, environment overrides and arguments
 internal/app/                synchronization, exclusions, diff/shuffle/batches
 internal/spotifyapi/         Spotify SDK adapter and pagination
 internal/spotifyauth/        interactive OAuth and loopback callback lifecycle
-.github/workflows/ci.yml     formatting, module metadata, vet, race tests, builds
 ```
 
 The module path is `github.com/QuentinBtd/spotify-playlist-filler`. The existing
