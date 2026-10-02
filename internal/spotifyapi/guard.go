@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 )
 
 type playlistPathKey struct{}
@@ -44,7 +45,16 @@ func (t apiTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if err := validateDestination(r.URL, t.base, path); err != nil {
 		return nil, err
 	}
-	return t.next.RoundTrip(r)
+	if status, ok := r.Context().Value(responseStatusKey{}).(*atomic.Int32); ok {
+		status.Store(0)
+	}
+	response, err := t.next.RoundTrip(r)
+	if response != nil {
+		if status, ok := r.Context().Value(responseStatusKey{}).(*atomic.Int32); ok {
+			status.Store(int32(response.StatusCode))
+		}
+	}
+	return response, err
 }
 
 func secureClient(raw *http.Client, baseURL string) *http.Client {

@@ -12,6 +12,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/QuentinBtd/spotify-playlist-filler/internal/diagnostics"
+
 	"github.com/QuentinBtd/spotify-playlist-filler/internal/app"
 	"github.com/QuentinBtd/spotify-playlist-filler/internal/config"
 	"github.com/QuentinBtd/spotify-playlist-filler/internal/logging"
@@ -30,6 +32,7 @@ func main() {
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) (runErr error) {
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	stage := "arguments"
+	priorPlaylistCompleted := false
 	var configError error
 	defer func() {
 		if runErr != nil {
@@ -38,7 +41,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) (runErr e
 			} else if errors.Is(runErr, app.ErrPlaylistCapacity) {
 				logger.Error("sync incomplete; capacity skips left unchanged", "stage", stage)
 			} else if stage == "synchronization" {
-				logger.Error("sync failed; inspect playlists before rerunning", "stage", stage)
+				logSynchronizationFailure(logger, runErr, priorPlaylistCompleted)
 			} else {
 				logger.Error("run failed", "stage", stage)
 			}
@@ -91,7 +94,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) (runErr e
 	stage = "synchronization"
 	var capacityErrors []error
 	for index, playlist := range cfg.Playlists {
-		playlistCtx := logging.WithContext(ctx, logger.With("playlist", index+1))
+		playlistCtx := diagnostics.WithPlaylist(logging.WithContext(ctx, logger.With("playlist", index+1)), index+1)
 		logger.Info("configured playlist", "playlist", index+1, "artists", len(playlist.Artists))
 		if err := app.FillWithConcurrency(playlistCtx, catalog, playlist, cfg.ReadConcurrency); err != nil {
 			if errors.Is(err, app.ErrPlaylistCapacity) {
@@ -100,6 +103,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) (runErr e
 			}
 			return fmt.Errorf("fill playlist %q (%s): %w", playlist.Name, playlist.ID, err)
 		}
+		priorPlaylistCompleted = true
 		logger.Info("playlist sync complete", "playlist", index+1)
 	}
 	logger.Info("sync complete", "playlists", len(cfg.Playlists), "skipped", len(capacityErrors))

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/QuentinBtd/spotify-playlist-filler/internal/diagnostics"
+
 	"github.com/QuentinBtd/spotify-playlist-filler/internal/config"
 	"github.com/QuentinBtd/spotify-playlist-filler/internal/logging"
 	"github.com/zmb3/spotify/v2"
@@ -61,7 +63,7 @@ func FillWithConcurrency(ctx context.Context, client Catalog, playlist config.Pl
 		current, err = client.PlaylistTracks(ctx, id)
 	}
 	if err != nil {
-		return fmt.Errorf("read playlist %q: %w", playlist.Name, err)
+		return diagnostics.Wrap(ctx, fmt.Errorf("read playlist %q: %w", playlist.Name, err), diagnostics.ReadPlaylist, 0, true)
 	}
 	readFields := []any{"supported_tracks", len(current), "total_known", totalKnown}
 	if totalKnown {
@@ -116,7 +118,7 @@ func FillWithConcurrency(ctx context.Context, client Catalog, playlist config.Pl
 		}
 		logger.Debug("remove batch", "tracks", len(batch))
 		if err := client.RemoveTracks(ctx, id, batch...); err != nil {
-			return fmt.Errorf("remove playlist tracks (playlist may be partially updated): %w", err)
+			return diagnostics.Wrap(ctx, fmt.Errorf("remove playlist tracks (playlist may be partially updated): %w", err), diagnostics.RemoveItems, 0, false)
 		}
 	}
 	for _, batch := range trackBatches(add) {
@@ -125,7 +127,7 @@ func FillWithConcurrency(ctx context.Context, client Catalog, playlist config.Pl
 		}
 		logger.Debug("add batch", "tracks", len(batch))
 		if err := client.AddTracks(ctx, id, batch...); err != nil {
-			return fmt.Errorf("add playlist tracks (playlist may be partially updated): %w", err)
+			return diagnostics.Wrap(ctx, fmt.Errorf("add playlist tracks (playlist may be partially updated): %w", err), diagnostics.AddItems, 0, false)
 		}
 	}
 	return nil

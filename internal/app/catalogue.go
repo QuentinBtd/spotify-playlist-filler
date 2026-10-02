@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/QuentinBtd/spotify-playlist-filler/internal/diagnostics"
+
 	"github.com/QuentinBtd/spotify-playlist-filler/internal/config"
 	"github.com/QuentinBtd/spotify-playlist-filler/internal/logging"
 	"github.com/zmb3/spotify/v2"
@@ -57,17 +59,17 @@ func readArtist(ctx context.Context, client Catalog, playlist config.Playlist, i
 		var err error
 		id, err = client.SearchArtist(ctx, artist.Name)
 		if err != nil {
-			return nil, fmt.Errorf("search artist %q: %w", artist.Name, err)
+			return nil, diagnostics.Wrap(ctx, fmt.Errorf("search artist %q: %w", artist.Name, err), diagnostics.SearchArtist, index+1, true)
 		}
 		logger.Info("artist search complete", "found", id != "")
 		if id == "" {
-			return nil, fmt.Errorf("artist %q not found; playlist unchanged", artist.Name)
+			return nil, diagnostics.Wrap(ctx, fmt.Errorf("artist %q not found; playlist unchanged", artist.Name), diagnostics.SearchArtist, index+1, true)
 		}
 	}
 	logger.Info("artist albums read started")
 	albums, err := client.ArtistAlbums(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("read artist %q albums: %w", artist.Name, err)
+		return nil, diagnostics.Wrap(ctx, fmt.Errorf("read artist %q albums: %w", artist.Name, err), diagnostics.ArtistAlbums, index+1, true)
 	}
 	logger.Info("artist albums read complete", "albums", len(albums))
 	var result []catalogueAlbum
@@ -86,7 +88,7 @@ func readArtist(ctx context.Context, client Catalog, playlist config.Playlist, i
 		albumLogger.Info("album tracks read started")
 		tracks, err := cache.get(logging.WithContext(ctx, albumLogger), client, album.ID)
 		if err != nil {
-			return nil, fmt.Errorf("read album %q: %w", album.ID, err)
+			return nil, diagnostics.Wrap(ctx, fmt.Errorf("read album %q: %w", album.ID, err), diagnostics.AlbumTracks, index+1, true)
 		}
 		result = append(result, catalogueAlbum{id: album.ID, tracks: tracks})
 		tracksRead += len(tracks)

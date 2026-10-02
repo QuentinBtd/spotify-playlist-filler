@@ -104,7 +104,9 @@ func (c *Client) playlistItemsURL(id spotify.ID) string {
 
 // playlistRequest never falls back to the deprecated /tracks contract. The
 // shared transport may retry GET 429s; mutations always make a single attempt.
-func (c *Client) playlistRequest(ctx context.Context, method, endpoint string, body any, result any, status int) error {
+func (c *Client) playlistRequest(ctx context.Context, method, endpoint string, body any, result any, status int) (err error) {
+	ctx, finish := observeStatus(ctx)
+	defer func() { err = finish(err) }()
 	var reader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
