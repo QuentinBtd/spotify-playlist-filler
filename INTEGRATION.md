@@ -1,8 +1,8 @@
 # Livraison CI/CD SPF préparée hors dépôt
 
-## État de cette PR brouillon
+## État de cette PR
 
-Les workflows sont volontairement stockés dans `ci/prepared/ci.yml` et `ci/prepared/release.yml`, **pas** dans `.github/workflows/` : ils sont donc inactifs. Le push des chemins actifs a été refusé par GitHub faute de droit `workflow`. Cette PR dépend du refactoring/mise de la PR #8 et cible sa branche pour isoler le diff CI/CD. Après ajout du droit et fusion de #8, déplacer ces deux fichiers dans `.github/workflows/`, retargeter cette PR vers `main`, relancer les validations, puis sortir du brouillon. Aucune CI, release ou image n’a été publiée par cette préparation. Les chemins `.github/workflows/` décrits ci-dessous désignent les emplacements finaux.
+Les workflows sont désormais dans `.github/workflows/ci.yml` et `.github/workflows/release.yml`, après autorisation d’écriture des workflows par l’utilisateur. La CI couvre les PR vers `main` et `refactor/go-project-conventions` afin de tester cette PR dépendante du refactoring/mise de #8. Le workflow Release reste limité aux pushes sur `main` : aucun push de cette branche ne publie une release ou image. Retargeter la PR vers `main` après fusion de #8. Les validations Actions/Docker sont à vérifier sur ce commit ; les preuves locales ci-dessous ne les remplacent pas.
 
 Préparation du **1er octobre 2026**, destinée à être relue puis intégrée après la migration mise. Aucun push, commit, tag, release, image ou réglage distant créé. Le dossier `validation/` contient les preuves, outils temporaires et copie isolée du code ; **ne pas le copier dans le dépôt**. L'archive de payload ne contient que les fichiers d'intégration et cette documentation.
 

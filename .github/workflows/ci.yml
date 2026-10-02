@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, refactor/go-project-conventions]
   push:
     branches: [main]
   workflow_dispatch:
