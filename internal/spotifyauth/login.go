@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zmb3/spotify/v2"
 	sdk "github.com/zmb3/spotify/v2/auth"
 )
 
@@ -28,7 +27,7 @@ func randomState() (string, error) {
 	return hex.EncodeToString(bytes[:]), nil
 }
 
-func callbackHandler(state string, result chan<- *spotify.Client, exchange func(*http.Request) (*spotify.Client, error)) http.Handler {
+func callbackHandler(state string, result chan<- *http.Client, exchange func(*http.Request) (*http.Client, error)) http.Handler {
 	var mu sync.Mutex
 	completed := false
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +62,7 @@ func callbackHandler(state string, result chan<- *spotify.Client, exchange func(
 }
 
 // Login waits up to five minutes. No token is persisted or logged.
-func Login(ctx context.Context, id, secret string, output io.Writer) (*spotify.Client, error) {
+func Login(ctx context.Context, id, secret string, output io.Writer) (*http.Client, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -77,9 +76,9 @@ func Login(ctx context.Context, id, secret string, output io.Writer) (*spotify.C
 	}
 	defer listener.Close()
 	auth := sdk.New(sdk.WithClientID(id), sdk.WithClientSecret(secret), sdk.WithRedirectURL(RedirectURI), sdk.WithScopes(sdk.ScopeUserReadPrivate, sdk.ScopePlaylistReadPrivate, sdk.ScopePlaylistReadCollaborative, sdk.ScopePlaylistModifyPublic, sdk.ScopePlaylistModifyPrivate))
-	result := make(chan *spotify.Client, 1)
+	result := make(chan *http.Client, 1)
 	mux := http.NewServeMux()
-	mux.Handle("/callback", callbackHandler(state, result, func(r *http.Request) (*spotify.Client, error) {
+	mux.Handle("/callback", callbackHandler(state, result, func(r *http.Request) (*http.Client, error) {
 		exchangeCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 		token, err := auth.Token(exchangeCtx, state, r)
@@ -89,7 +88,7 @@ func Login(ctx context.Context, id, secret string, output io.Writer) (*spotify.C
 		// Use the application's lifetime, not the soon-to-be-canceled callback context.
 		httpClient := auth.Client(ctx, token)
 		httpClient.Timeout = 30 * time.Second
-		return spotify.New(httpClient, spotify.WithRetry(false)), nil
+		return httpClient, nil
 	}))
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
 	defer func() {

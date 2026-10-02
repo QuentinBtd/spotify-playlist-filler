@@ -17,12 +17,13 @@ func TestReadPaginationAndSkipUnsupportedItems(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/playlists/p/tracks":
+		case "/playlists/p/items":
 			if r.URL.Query().Get("page") == "2" {
-				fmt.Fprint(w, `{"items":[{"track":{"type":"track","id":"second"}}]}`)
+				fmt.Fprint(w, `{"items":[{"item":{"type":"track","id":"second"}}],"next":null}`)
 				return
 			}
-			fmt.Fprintf(w, `{"next":%q,"items":[{"track":null},{"is_local":true,"track":{"type":"track","id":"local"}},{"track":{"type":"episode","id":"episode"}},{"track":{"type":"track","id":"first"}}]}`, base+"/playlists/p/tracks?page=2")
+			// Synthetic fixtures for the current contract, not recorded account data.
+			fmt.Fprintf(w, `{"next":%q,"items":[{"item":null},{"is_local":true,"item":{"type":"track","id":"local"}},{"item":{"type":"track","id":"inner-local","is_local":true}},{"item":{"type":"episode","id":"episode"}},{"item":{"type":"future-type","id":"unknown"}},{"item":{"type":"track","id":""}},{"item":{"type":"track","id":"first","album":{"id":"album"},"artists":[{"id":"artist"}]},"track":{"type":"track","id":"legacy-decoy"}}]}`, base+"/playlists/p/items?page=2")
 		case "/artists/a/albums":
 			if r.URL.Query().Get("page") == "2" {
 				fmt.Fprint(w, `{"items":[{"id":"album2"}]}`)
@@ -41,7 +42,7 @@ func TestReadPaginationAndSkipUnsupportedItems(t *testing.T) {
 	}))
 	defer server.Close()
 	base = server.URL
-	c := New(spotify.New(server.Client(), spotify.WithBaseURL(base+"/"), spotify.WithRetry(false)))
+	c := newClient(server.Client(), base+"/")
 	tracks, err := c.PlaylistTracks(context.Background(), "p")
 	if err != nil || !reflect.DeepEqual(tracks, []spotify.ID{"first", "second"}) {
 		t.Fatalf("playlist=%v err=%v", tracks, err)
@@ -77,7 +78,7 @@ func TestReadErrorsAndSearchPagination(t *testing.T) {
 	}))
 	defer server.Close()
 	base = server.URL
-	c := New(spotify.New(server.Client(), spotify.WithBaseURL(base+"/"), spotify.WithRetry(false)))
+	c := newClient(server.Client(), base+"/")
 	id, err := c.SearchArtist(context.Background(), "Exact")
 	if err != nil || id != "match" {
 		t.Fatalf("artist=%q err=%v", id, err)
@@ -110,7 +111,7 @@ func TestWriteRequestsUseTrackURIs(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		if r.URL.Path != "/playlists/p/tracks" {
+		if r.URL.Path != "/playlists/p/items" {
 			t.Errorf("path=%s", r.URL.Path)
 		}
 		if r.Method == http.MethodPost {
@@ -125,18 +126,24 @@ func TestWriteRequestsUseTrackURIs(t *testing.T) {
 			var tracks []struct {
 				URI string `json:"uri"`
 			}
-			if err := json.Unmarshal(body["tracks"], &tracks); err != nil {
+			if err := json.Unmarshal(body["items"], &tracks); err != nil {
 				t.Error(err)
 			}
 			if len(tracks) != 2 || tracks[0].URI != "spotify:track:a" || tracks[1].URI != "spotify:track:b" {
 				t.Errorf("tracks=%v", tracks)
 			}
 		}
+		if len(body) != 1 || r.URL.RawQuery != "" || r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("unexpected payload/header/query: %v %s %s", body, r.Header.Get("Content-Type"), r.URL.RawQuery)
+		}
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusCreated)
+		}
 		fmt.Fprint(w, `{"snapshot_id":"snapshot"}`)
 	}))
 	defer server.Close()
-	c := New(spotify.New(server.Client(), spotify.WithBaseURL(server.URL+"/"), spotify.WithRetry(false)))
+	c := newClient(server.Client(), server.URL+"/")
 	if err := c.AddTracks(context.Background(), "p", "a", "b"); err != nil {
 		t.Fatal(err)
 	}
