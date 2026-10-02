@@ -22,8 +22,8 @@ func (write loginOutput) Write(b []byte) (int, error) { return write(b) }
 func portConfig(t *testing.T, port int) string {
 	t.Helper()
 	t.Setenv("SPF_OAUTH_PORT", "")
-	t.Setenv("SPOTIFY_ID", "fixture-id")
-	t.Setenv("SPOTIFY_SECRET", "fixture-secret")
+	t.Setenv("SPF_SPOTIFY_ID", "fixture-id")
+	t.Setenv("SPF_SPOTIFY_SECRET", "fixture-secret")
 	t.Setenv("SPF_TOKEN_CACHE", filepath.Join(t.TempDir(), "tokens"))
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	text := fmt.Sprintf("oauth_port: %d\nplaylists:\n  - uri: playlist\n    artists:\n      - uri: artist\n", port)
@@ -34,6 +34,15 @@ func portConfig(t *testing.T, port int) string {
 }
 
 func TestRunSelectedPortURLListenerAndCancellation(t *testing.T) {
+	for _, level := range []string{"warn", "error"} {
+		t.Run(level, func(t *testing.T) {
+			t.Setenv("SPF_LOG_LEVEL", level)
+			testSelectedPortURLListenerAndCancellation(t)
+		})
+	}
+}
+
+func testSelectedPortURLListenerAndCancellation(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/QuentinBtd/spotify-playlist-filler/internal/config"
+	"github.com/QuentinBtd/spotify-playlist-filler/internal/logging"
 	"github.com/zmb3/spotify/v2"
 )
 
@@ -27,6 +28,8 @@ func Fill(ctx context.Context, client Catalog, playlist config.Playlist) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	logger := logging.FromContext(ctx)
+	logger.Info("read catalogue", "artists", len(playlist.Artists))
 	id := spotify.ID(playlist.ID)
 	current, err := client.PlaylistTracks(ctx, id)
 	if err != nil {
@@ -71,10 +74,12 @@ func Fill(ctx context.Context, client Catalog, playlist config.Playlist) error {
 		}
 	}
 	remove, add := planTracks(current, desired, playlist.ShuffleOrder)
+	logger.Debug("track plan", "current", len(current), "desired", len(desired), "remove", len(remove), "add", len(add))
 	for _, batch := range trackBatches(remove) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		logger.Debug("remove batch", "tracks", len(batch))
 		if err := client.RemoveTracks(ctx, id, batch...); err != nil {
 			return fmt.Errorf("remove playlist tracks (playlist may be partially updated): %w", err)
 		}
@@ -83,6 +88,7 @@ func Fill(ctx context.Context, client Catalog, playlist config.Playlist) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		logger.Debug("add batch", "tracks", len(batch))
 		if err := client.AddTracks(ctx, id, batch...); err != nil {
 			return fmt.Errorf("add playlist tracks (playlist may be partially updated): %w", err)
 		}

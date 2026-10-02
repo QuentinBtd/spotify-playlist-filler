@@ -8,6 +8,9 @@ import (
 )
 
 func TestRunHelpWithoutConfigOrLogin(t *testing.T) {
+	t.Setenv("SPF_CONFIG", t.TempDir()+"/missing")
+	t.Setenv("CONFIG", "legacy-missing")
+	t.Setenv("SPF_LOG_LEVEL", "invalid")
 	var out, stderr bytes.Buffer
 	if err := run(context.Background(), []string{"--help"}, &out, &stderr); err != nil {
 		t.Fatal(err)

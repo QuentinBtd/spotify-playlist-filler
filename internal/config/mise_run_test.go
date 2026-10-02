@@ -19,6 +19,18 @@ func TestMiseRunConfigSemantics(t *testing.T) {
 	}
 	section := strings.SplitN(string(data), "[tasks.run]", 2)[1]
 	script := strings.SplitN(section, "'''", 3)[1]
+	t.Run("canonical overrides legacy", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "go"), []byte("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("bash", "-c", script, "task", "--help")
+		cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "SPF_CONFIG=canonical path.yaml", "CONFIG=legacy.yml")
+		out, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(out), "canonical path.yaml") || strings.Contains(string(out), "legacy.yml") {
+			t.Fatalf("mise env priority: %v %s", err, out)
+		}
+	})
 	dir := t.TempDir()
 	goStub := filepath.Join(dir, "go")
 	if err := os.WriteFile(goStub, []byte("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$CAPTURE\"\n"), 0700); err != nil {
@@ -37,7 +49,7 @@ func TestMiseRunConfigSemantics(t *testing.T) {
 			capture := filepath.Join(dir, "args")
 			args := append([]string{"-c", script, "task"}, tc.extra...)
 			cmd := exec.Command("bash", args...)
-			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CONFIG="+tc.config, "CAPTURE="+capture)
+			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "SPF_CONFIG=", "CONFIG="+tc.config, "CAPTURE="+capture)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("run script: %v %s", err, out)
 			}

@@ -87,13 +87,15 @@ done
 '''
 
 [tasks.run]
-description = "Run the CLI with CONFIG (default config.yaml, legacy config.yml fallback); accepts extra CLI arguments"
+description = "Run the CLI with SPF_CONFIG (default config.yaml, legacy config.yml fallback); accepts extra CLI arguments"
 alias = "exec"
 run = '''
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ -n "${CONFIG:-}" ]]; then
-    exec go run ./cmd/spotify-playlist-filler -config "$CONFIG" "$@"
+# CONFIG is a deprecated fallback; the canonical SPF_CONFIG wins.
+config_path=${SPF_CONFIG:-${CONFIG:-}}
+if [[ -n "$config_path" ]]; then
+    exec go run ./cmd/spotify-playlist-filler -config "$config_path" "$@"
 fi
 # Let the CLI resolve config.yaml / legacy fallback and explicit arguments.
 exec go run ./cmd/spotify-playlist-filler "$@"
