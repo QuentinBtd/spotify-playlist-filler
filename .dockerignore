@@ -1,0 +1,13 @@
+.git
+config.yaml
+config.yml
+.env
+.env.*
+*.spf-token.json
+**/*.spf-token.json
+.spf-token-*
+**/.spf-token-*
+bin
+build
+dist
+coverage.out
