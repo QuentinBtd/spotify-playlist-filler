@@ -17,7 +17,7 @@ import (
 	sdk "github.com/zmb3/spotify/v2/auth"
 )
 
-// RedirectURI must also be registered in the Spotify application dashboard.
+// RedirectURI is the default callback URI retained for Login compatibility.
 const RedirectURI = "http://127.0.0.1:8080/callback"
 
 func randomState() (string, error) {
@@ -65,10 +65,21 @@ func callbackHandler(state string, result chan<- *http.Client, exchange func(*ht
 // Login reuses or refreshes cached authorization before starting a loopback login.
 // Interactive login waits up to five minutes. Tokens and secrets are never logged.
 func Login(ctx context.Context, id, secret string, output io.Writer) (*http.Client, error) {
+	return LoginWithPort(ctx, id, secret, 8080, output)
+}
+
+// LoginWithPort uses an explicit loopback port. Port changes do not invalidate
+// cached authorization, which remains keyed by client ID and scopes.
+func LoginWithPort(ctx context.Context, id, secret string, port int, output io.Writer) (*http.Client, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	auth := sdk.New(sdk.WithClientID(id), sdk.WithClientSecret(secret), sdk.WithRedirectURL(RedirectURI), sdk.WithScopes(scopes...))
+	if port < 1 || port > 65535 {
+		return nil, fmt.Errorf("OAuth callback port must be an integer from 1 to 65535")
+	}
+	address := fmt.Sprintf("127.0.0.1:%d", port)
+	redirectURI := "http://" + address + "/callback"
+	auth := sdk.New(sdk.WithClientID(id), sdk.WithClientSecret(secret), sdk.WithRedirectURL(redirectURI), sdk.WithScopes(scopes...))
 	cache, err := newTokenCache(id)
 	if err != nil {
 		return nil, err
@@ -90,7 +101,7 @@ func Login(ctx context.Context, id, secret string, output io.Writer) (*http.Clie
 	if err != nil {
 		return nil, err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("listen for OAuth callback: %w", err)
 	}

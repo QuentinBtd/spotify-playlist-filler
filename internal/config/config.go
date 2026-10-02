@@ -13,6 +13,7 @@ import (
 )
 
 type Config struct {
+	OAuthPort     int        `yaml:"-"`
 	Verbose       bool       `yaml:"verbose"`
 	SpotifyID     string     `yaml:"SPOTIFY_ID"`
 	SpotifySecret string     `yaml:"SPOTIFY_SECRET"`
@@ -39,11 +40,12 @@ type Album struct {
 	ID   string `yaml:"uri"`
 }
 
-// ParseArgs preserves the default config.yml and accepts one legacy positional path.
+// ParseArgs defaults to config.yaml, falling back to an existing config.yml
+// only when no path was supplied and config.yaml is absent.
 func ParseArgs(args []string, output io.Writer) (string, error) {
 	flags := flag.NewFlagSet("spotify-playlist-filler", flag.ContinueOnError)
 	flags.SetOutput(output)
-	path := flags.String("config", "config.yml", "Config path")
+	path := flags.String("config", "config.yaml", "Config path (default falls back to config.yml when absent)")
 	if err := flags.Parse(args); err != nil {
 		return "", err
 	}
@@ -58,20 +60,56 @@ func ParseArgs(args []string, output io.Writer) (string, error) {
 	}
 	if flags.NArg() == 1 {
 		*path = flags.Arg(0)
+	} else if !explicit {
+		// Lstat distinguishes an absent default from a dangling symlink: an
+		// existing but unreadable/broken YAML path must not be silently masked.
+		if _, err := os.Lstat(*path); os.IsNotExist(err) {
+			if _, legacyErr := os.Lstat("config.yml"); !os.IsNotExist(legacyErr) {
+				*path = "config.yml"
+			}
+		}
 	}
 	return *path, nil
 }
 
 // Load applies environment overrides after decoding the file.
 func Load(path string, lookup func(string) (string, bool)) (Config, error) {
-	var cfg Config
+	cfg := Config{OAuthPort: 8080}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return cfg, fmt.Errorf("read config %q: %w", path, err)
 	}
-	if err := yaml.UnmarshalStrict(data, &cfg); err != nil {
+	raw := struct {
+		Config    `yaml:",inline"`
+		OAuthPort interface{} `yaml:"oauth_port"`
+	}{Config: cfg, OAuthPort: 8080}
+	if err := yaml.UnmarshalStrict(data, &raw); err != nil {
 		return cfg, fmt.Errorf("decode config %q: %w", path, err)
 	}
+	cfg = raw.Config
+	port, source := raw.OAuthPort, "oauth_port"
+	if value, ok := lookup("SPF_OAUTH_PORT"); ok && value != "" {
+		port, source = value, "SPF_OAUTH_PORT"
+	}
+	// Validate even explicit YAML null; only an absent key uses 8080.
+	var text string
+	switch value := port.(type) {
+	case int:
+		text = strconv.Itoa(value)
+	case string:
+		text = value
+	}
+	valid := text != ""
+	for _, digit := range text {
+		if digit < '0' || digit > '9' {
+			valid = false
+		}
+	}
+	selected, parseErr := strconv.Atoi(text)
+	if !valid || parseErr != nil || selected < 1 || selected > 65535 {
+		return cfg, fmt.Errorf("%s must be an integer from 1 to 65535", source)
+	}
+	cfg.OAuthPort = selected
 	if value, ok := lookup("SPOTIFY_ID"); ok && value != "" {
 		cfg.SpotifyID = value
 	}

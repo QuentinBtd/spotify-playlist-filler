@@ -26,7 +26,7 @@ func TestUnsafePlaylistConfigRejected(t *testing.T) {
 }
 
 func TestExampleConfigWithEnvironmentCredentials(t *testing.T) {
-	cfg, err := Load("../../config.example.yml", func(key string) (string, bool) {
+	cfg, err := Load("../../config.example.yaml", func(key string) (string, bool) {
 		if key == "SPOTIFY_ID" || key == "SPOTIFY_SECRET" {
 			return "test-credential", true
 		}
