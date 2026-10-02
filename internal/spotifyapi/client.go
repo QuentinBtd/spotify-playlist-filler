@@ -91,7 +91,9 @@ func (c *Client) PlaylistTracksWithCount(ctx context.Context, id spotify.ID) ([]
 	return result, total, nil
 }
 
-func (c *Client) ArtistAlbums(ctx context.Context, id spotify.ID) ([]app.Album, error) {
+func (c *Client) ArtistAlbums(ctx context.Context, id spotify.ID) (result []app.Album, err error) {
+	ctx, finish := observeStatus(ctx)
+	defer func() { err = finish(err) }()
 	logger := logging.FromContext(ctx)
 	pages := 1
 	logger.Debug("artist albums page read started", "page", pages, "cumulative_albums", 0)
@@ -99,7 +101,6 @@ func (c *Client) ArtistAlbums(ctx context.Context, id spotify.ID) ([]app.Album, 
 	if err != nil {
 		return nil, err
 	}
-	var result []app.Album
 	for {
 		for _, album := range page.Albums {
 			result = append(result, app.Album{ID: album.ID})
@@ -119,7 +120,9 @@ func (c *Client) ArtistAlbums(ctx context.Context, id spotify.ID) ([]app.Album, 
 	}
 }
 
-func (c *Client) AlbumTracks(ctx context.Context, id spotify.ID) ([]spotify.ID, error) {
+func (c *Client) AlbumTracks(ctx context.Context, id spotify.ID) (result []spotify.ID, err error) {
+	ctx, finish := observeStatus(ctx)
+	defer func() { err = finish(err) }()
 	logger := logging.FromContext(ctx)
 	pages := 1
 	logger.Debug("album tracks page read started", "page", pages, "cumulative_tracks", 0)
@@ -127,7 +130,6 @@ func (c *Client) AlbumTracks(ctx context.Context, id spotify.ID) ([]spotify.ID, 
 	if err != nil {
 		return nil, err
 	}
-	var result []spotify.ID
 	for {
 		for _, track := range page.Tracks {
 			if track.ID != "" {
@@ -149,7 +151,9 @@ func (c *Client) AlbumTracks(ctx context.Context, id spotify.ID) ([]spotify.ID, 
 	}
 }
 
-func (c *Client) SearchArtist(ctx context.Context, name string) (spotify.ID, error) {
+func (c *Client) SearchArtist(ctx context.Context, name string) (id spotify.ID, err error) {
+	ctx, finish := observeStatus(ctx)
+	defer func() { err = finish(err) }()
 	offset := 0
 	for {
 		// Search returns a nested artists object; SDK NextPage expects a raw page.

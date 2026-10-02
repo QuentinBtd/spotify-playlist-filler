@@ -34,8 +34,17 @@ func (transport localAPITransport) RoundTrip(r *http.Request) (*http.Response, e
 	return http.DefaultTransport.RoundTrip(clone)
 }
 func TestRunCachedAuthenticationStopsOnRevocationWithoutMutationRetry(t *testing.T) {
-	for _, failure := range []string{"read", "mutation"} {
+	for _, failure := range []string{"read", "mutation", "read403", "read400", "read404"} {
 		t.Run(failure, func(t *testing.T) {
+			status := 401
+			switch failure {
+			case "read403":
+				status = 403
+			case "read400":
+				status = 400
+			case "read404":
+				status = 404
+			}
 			dir := filepath.Join(t.TempDir(), "cache")
 			if err := os.Mkdir(dir, 0700); err != nil {
 				t.Fatal(err)
@@ -75,9 +84,9 @@ func TestRunCachedAuthenticationStopsOnRevocationWithoutMutationRetry(t *testing
 					fmt.Fprint(w, `{"error":{"status":401,"message":"synthetic-refresh"}}`)
 				case strings.Contains(r.URL.Path, "/playlists/"):
 					fmt.Fprint(w, `{"items":[{"item":{"id":"obsolete","type":"track"}}],"next":null}`)
-				case failure == "read":
-					w.WriteHeader(401)
-					fmt.Fprint(w, `{"error":{"status":401,"message":"synthetic-refresh"}}`)
+				case strings.HasPrefix(failure, "read"):
+					w.WriteHeader(status)
+					fmt.Fprintf(w, `{"error":{"status":%d,"message":"synthetic-refresh SECRET_BODY SECRET_TOKEN"}}`, status)
 				default:
 					fmt.Fprint(w, `{"items":[],"next":"","limit":20,"offset":0,"total":0}`)
 				}
@@ -96,17 +105,28 @@ func TestRunCachedAuthenticationStopsOnRevocationWithoutMutationRetry(t *testing
 			if failure == "mutation" {
 				expected = 1
 			}
-			if err == nil || strings.Contains(err.Error(), "synthetic-") || strings.Contains(out.String(), "Please log in") || writes != expected {
+			if err == nil || (status == 401 && strings.Contains(err.Error(), "synthetic-")) || strings.Contains(out.String(), "Please log in") || writes != expected {
 				t.Fatalf("unsafe CLI auth failure: writes=%d err=%v output=%s", writes, err, &out)
 			}
-			if strings.Count(stderr.String(), "level=ERROR") != 1 || !strings.Contains(stderr.String(), "inspect playlists before rerunning") || strings.Contains(stderr.String(), "synthetic-") || strings.Contains(stderr.String(), "Authorization") {
+			guidance, operation, kind := "playlist unchanged", "artist_albums", "http"
+			if status == 401 {
+				kind = "oauth"
+			}
+			if failure == "mutation" {
+				guidance, operation = "inspect playlists before rerunning", "remove_items"
+			}
+			if strings.Count(stderr.String(), "level=ERROR") != 1 || !strings.Contains(stderr.String(), guidance) || !strings.Contains(stderr.String(), "stage=synchronization") || !strings.Contains(stderr.String(), "operation="+operation) || !strings.Contains(stderr.String(), "failure_kind="+kind) || !strings.Contains(stderr.String(), fmt.Sprintf("http_status=%d", status)) || strings.Contains(stderr.String(), "synthetic-") || strings.Contains(stderr.String(), "SECRET_") || strings.Contains(stderr.String(), "Authorization") {
 				t.Fatalf("unsafe/missing failure log: %s", &stderr)
 			}
 			if failure == "mutation" && !strings.Contains(stderr.String(), "remove batch") {
 				t.Fatal("missing batch progress")
 			}
-			if _, err := os.Stat(path); !os.IsNotExist(err) {
+			_, cacheErr := os.Stat(path)
+			if status == 401 && !os.IsNotExist(cacheErr) {
 				t.Fatal("revoked cache retained")
+			}
+			if status != 401 && cacheErr != nil {
+				t.Fatal("non-revocation failure removed cache")
 			}
 		})
 	}

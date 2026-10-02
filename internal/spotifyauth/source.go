@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuentinBtd/spotify-playlist-filler/internal/diagnostics"
+
 	sdk "github.com/zmb3/spotify/v2/auth"
 	"golang.org/x/oauth2"
 )
@@ -56,7 +58,7 @@ func (t authorizationTransport) RoundTrip(r *http.Request) (*http.Response, erro
 	if err := t.source.cache.remove(); err != nil {
 		t.source.fatal = err
 	}
-	return nil, t.source.fatal
+	return nil, &diagnostics.StatusError{Err: t.source.fatal, Status: http.StatusUnauthorized, OAuth: true}
 }
 func authorizationClient(ctx context.Context, source *persistentSource) *http.Client {
 	client := oauth2.NewClient(ctx, source)
@@ -88,13 +90,17 @@ func (s *persistentSource) Token() (*oauth2.Token, error) {
 				if err := s.cache.remove(); err != nil {
 					s.fatal = err
 				}
-				return nil, s.fatal
+				return nil, &diagnostics.StatusError{Err: s.fatal, Status: retrieve.Response.StatusCode, OAuth: true}
 			}
 		}
 		if s.ctx.Err() != nil {
 			return nil, s.ctx.Err()
 		}
-		return nil, errors.New("refresh Spotify authorization failed; retry later")
+		status := 0
+		if retrieve != nil && retrieve.Response != nil {
+			status = retrieve.Response.StatusCode
+		}
+		return nil, &diagnostics.StatusError{Err: errors.New("refresh Spotify authorization failed; retry later"), Status: status, OAuth: true}
 	}
 	if err = s.cache.save(next); err != nil {
 		s.fatal = err
