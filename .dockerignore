@@ -1,0 +1,12 @@
+# Deny by default, including .git, sources, credentials, config.yml, and .env.
+**
+!Dockerfile
+!.dockerignore
+!linux/
+linux/**
+!linux/amd64/
+!linux/arm64/
+linux/amd64/**
+linux/arm64/**
+!linux/amd64/spotify-playlist-filler
+!linux/arm64/spotify-playlist-filler
