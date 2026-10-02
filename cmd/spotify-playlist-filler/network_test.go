@@ -18,6 +18,10 @@ func (transport loopbackOnlyTransport) RoundTrip(r *http.Request) (*http.Respons
 	return transport.base.RoundTrip(r)
 }
 func TestMain(m *testing.M) {
+	// Ignore ambient application settings; every fixture uses synthetic values.
+	for _, name := range []string{"SPF_SPOTIFY_ID", "SPF_SPOTIFY_SECRET", "SPOTIFY_ID", "SPOTIFY_SECRET", "SPF_CONFIG", "CONFIG", "SPF_LOG_LEVEL", "SPF_VERBOSE", "SPF_OAUTH_PORT", "SPF_TOKEN_CACHE"} {
+		os.Unsetenv(name)
+	}
 	// Even a regression in cache validation must never reach real OAuth/API hosts.
 	http.DefaultTransport = loopbackOnlyTransport{base: http.DefaultTransport}
 	os.Exit(m.Run())

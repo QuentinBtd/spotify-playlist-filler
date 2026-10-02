@@ -9,6 +9,7 @@ import (
 	"net/url"
 
 	"github.com/QuentinBtd/spotify-playlist-filler/internal/app"
+	"github.com/QuentinBtd/spotify-playlist-filler/internal/logging"
 	"github.com/zmb3/spotify/v2"
 )
 
@@ -37,6 +38,8 @@ func (c *Client) CurrentUser(ctx context.Context) (*spotify.PrivateUser, error) 
 }
 
 func (c *Client) PlaylistTracks(ctx context.Context, id spotify.ID) ([]spotify.ID, error) {
+	logger := logging.FromContext(ctx)
+	skipped, pages := 0, 0
 	var result []spotify.ID
 	visited := make(map[string]bool)
 	for next := c.playlistItemsURL(id); next != ""; {
@@ -55,14 +58,15 @@ func (c *Client) PlaylistTracks(ctx context.Context, id spotify.ID) ([]spotify.I
 		if err := c.playlistRequest(ctx, http.MethodGet, next, nil, &page, http.StatusOK); err != nil {
 			return nil, err
 		}
+		pages++
+		logger.Debug("playlist items page", "page", pages, "items", len(page.Items))
 		for _, entry := range page.Items {
 			item := entry.Item
-			if entry.IsLocal || item == nil || item.IsLocal || item.Type != "track" {
+			if entry.IsLocal || item == nil || item.IsLocal || item.Type != "track" || item.ID == "" {
+				skipped++
 				continue
 			}
-			if item.ID != "" {
-				result = append(result, item.ID)
-			}
+			result = append(result, item.ID)
 		}
 		if page.Next == "" {
 			break
@@ -71,6 +75,9 @@ func (c *Client) PlaylistTracks(ctx context.Context, id spotify.ID) ([]spotify.I
 		if err != nil {
 			return nil, err
 		}
+	}
+	if skipped > 0 {
+		logger.Warn("skipped unsupported playlist items", "count", skipped)
 	}
 	return result, nil
 }

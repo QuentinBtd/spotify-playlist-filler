@@ -14,9 +14,11 @@ import (
 
 type Config struct {
 	OAuthPort     int        `yaml:"-"`
+	LogLevel      string     `yaml:"log_level"`
+	Deprecated    []string   `yaml:"-"`
 	Verbose       bool       `yaml:"verbose"`
-	SpotifyID     string     `yaml:"SPOTIFY_ID"`
-	SpotifySecret string     `yaml:"SPOTIFY_SECRET"`
+	SpotifyID     string     `yaml:"spotify_id"`
+	SpotifySecret string     `yaml:"spotify_secret"`
 	Playlists     []Playlist `yaml:"playlists"`
 }
 
@@ -45,7 +47,7 @@ type Album struct {
 func ParseArgs(args []string, output io.Writer) (string, error) {
 	flags := flag.NewFlagSet("spotify-playlist-filler", flag.ContinueOnError)
 	flags.SetOutput(output)
-	path := flags.String("config", "config.yaml", "Config path (default falls back to config.yml when absent)")
+	path := flags.String("config", "config.yaml", "Config path (SPF_CONFIG override; default falls back to config.yml when absent)")
 	if err := flags.Parse(args); err != nil {
 		return "", err
 	}
@@ -61,6 +63,12 @@ func ParseArgs(args []string, output io.Writer) (string, error) {
 	if flags.NArg() == 1 {
 		*path = flags.Arg(0)
 	} else if !explicit {
+		if value := os.Getenv("SPF_CONFIG"); value != "" {
+			return value, nil
+		}
+		if value := os.Getenv("CONFIG"); value != "" {
+			return value, nil
+		}
 		// Lstat distinguishes an absent default from a dangling symlink: an
 		// existing but unreadable/broken YAML path must not be silently masked.
 		if _, err := os.Lstat(*path); os.IsNotExist(err) {
@@ -80,13 +88,43 @@ func Load(path string, lookup func(string) (string, bool)) (Config, error) {
 		return cfg, fmt.Errorf("read config %q: %w", path, err)
 	}
 	raw := struct {
-		Config    `yaml:",inline"`
-		OAuthPort interface{} `yaml:"oauth_port"`
+		Config       `yaml:",inline"`
+		OAuthPort    interface{} `yaml:"oauth_port"`
+		LegacyID     string      `yaml:"SPOTIFY_ID"`
+		LegacySecret string      `yaml:"SPOTIFY_SECRET"`
 	}{Config: cfg, OAuthPort: 8080}
 	if err := yaml.UnmarshalStrict(data, &raw); err != nil {
-		return cfg, fmt.Errorf("decode config %q: %w", path, err)
+		// Decoder diagnostics can contain credential values or arbitrary YAML keys.
+		return cfg, fmt.Errorf("decode config: invalid YAML, unknown/duplicate fields or invalid field types")
+	}
+	var keys map[string]interface{}
+	if err := yaml.Unmarshal(data, &keys); err != nil {
+		return cfg, fmt.Errorf("decode config: expected a YAML mapping")
+	}
+	for _, pair := range [][2]string{{"spotify_id", "SPOTIFY_ID"}, {"spotify_secret", "SPOTIFY_SECRET"}} {
+		_, canonical := keys[pair[0]]
+		_, legacy := keys[pair[1]]
+		if canonical && legacy {
+			return cfg, fmt.Errorf("conflicting YAML keys %s and %s; keep only %s", pair[0], pair[1], pair[0])
+		}
 	}
 	cfg = raw.Config
+	for _, name := range []string{"SPOTIFY_ID", "SPOTIFY_SECRET", "verbose"} {
+		if _, exists := keys[name]; exists {
+			cfg.Deprecated = append(cfg.Deprecated, name+" YAML")
+		}
+	}
+	for _, name := range []string{"SPOTIFY_ID", "SPOTIFY_SECRET", "SPF_VERBOSE", "CONFIG"} {
+		if value, exists := lookup(name); exists && value != "" {
+			cfg.Deprecated = append(cfg.Deprecated, name+" environment")
+		}
+	}
+	if cfg.SpotifyID == "" {
+		cfg.SpotifyID = raw.LegacyID
+	}
+	if cfg.SpotifySecret == "" {
+		cfg.SpotifySecret = raw.LegacySecret
+	}
 	port, source := raw.OAuthPort, "oauth_port"
 	if value, ok := lookup("SPF_OAUTH_PORT"); ok && value != "" {
 		port, source = value, "SPF_OAUTH_PORT"
@@ -116,17 +154,39 @@ func Load(path string, lookup func(string) (string, bool)) (Config, error) {
 	if value, ok := lookup("SPOTIFY_SECRET"); ok && value != "" {
 		cfg.SpotifySecret = value
 	}
-	if value, ok := lookup("SPF_VERBOSE"); ok && value != "" {
-		cfg.Verbose, err = strconv.ParseBool(value)
-		if err != nil {
-			return cfg, fmt.Errorf("SPF_VERBOSE must be a boolean: %w", err)
+	if value, ok := lookup("SPF_SPOTIFY_ID"); ok {
+		cfg.SpotifyID = value
+	}
+	if value, ok := lookup("SPF_SPOTIFY_SECRET"); ok {
+		cfg.SpotifySecret = value
+	}
+	_, explicitLevel := keys["log_level"]
+	if value, ok := lookup("SPF_LOG_LEVEL"); ok && value != "" {
+		cfg.LogLevel, explicitLevel = value, true
+	}
+	if !explicitLevel {
+		if value, ok := lookup("SPF_VERBOSE"); ok && value != "" {
+			cfg.Verbose, err = strconv.ParseBool(value)
+			if err != nil {
+				return cfg, fmt.Errorf("SPF_VERBOSE must be a boolean")
+			}
+		}
+		cfg.LogLevel = "info"
+		if cfg.Verbose {
+			cfg.LogLevel = "debug"
 		}
 	}
+	switch cfg.LogLevel {
+	case "debug", "info", "warn", "error":
+	default:
+		return cfg, fmt.Errorf("log_level / SPF_LOG_LEVEL must be debug, info, warn or error")
+	}
+	cfg.Verbose = cfg.LogLevel == "debug"
 	if strings.TrimSpace(cfg.SpotifyID) == "" {
-		return cfg, fmt.Errorf("SPOTIFY_ID is required")
+		return cfg, fmt.Errorf("spotify_id / SPF_SPOTIFY_ID is required")
 	}
 	if strings.TrimSpace(cfg.SpotifySecret) == "" {
-		return cfg, fmt.Errorf("SPOTIFY_SECRET is required")
+		return cfg, fmt.Errorf("spotify_secret / SPF_SPOTIFY_SECRET is required")
 	}
 	for i, playlist := range cfg.Playlists {
 		if strings.TrimSpace(playlist.ID) == "" {

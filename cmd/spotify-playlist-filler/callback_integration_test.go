@@ -34,6 +34,8 @@ func (transport callbackFixtureTransport) RoundTrip(r *http.Request) (*http.Resp
 }
 
 func TestRunExchangeRedirectAndReuseCacheAcrossPortChanges(t *testing.T) {
+	t.Setenv("SPF_LOG_LEVEL", "debug")
+	var logs bytes.Buffer
 	probe, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +71,7 @@ func TestRunExchangeRedirectAndReuseCacheAcrossPortChanges(t *testing.T) {
 			}
 			fmt.Fprint(w, `{"id":"fixture-user"}`)
 		case strings.Contains(r.URL.Path, "/playlists/"):
-			fmt.Fprint(w, `{"items":[],"next":null}`)
+			fmt.Fprint(w, `{"items":[{"item":null}],"next":null}`)
 		case strings.Contains(r.URL.Path, "/artists/"):
 			fmt.Fprint(w, `{"items":[],"next":"","limit":20,"offset":0,"total":0}`)
 		default:
@@ -83,7 +85,7 @@ func TestRunExchangeRedirectAndReuseCacheAcrossPortChanges(t *testing.T) {
 	defer cancel()
 	lines, done := make(chan string, 8), make(chan error, 1)
 	go func() {
-		done <- run(ctx, []string{path}, loginOutput(func(b []byte) (int, error) { lines <- string(b); return len(b), nil }), io.Discard)
+		done <- run(ctx, []string{path}, loginOutput(func(b []byte) (int, error) { lines <- string(b); return len(b), nil }), &logs)
 	}()
 	var line string
 	select {
@@ -115,6 +117,16 @@ func TestRunExchangeRedirectAndReuseCacheAcrossPortChanges(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("CLI did not finish")
 	}
+	for _, message := range []string{"sync started", "login started", "login complete", "configured playlist", "read catalogue", "playlist sync complete", "sync complete", "level=DEBUG", "skipped unsupported playlist items"} {
+		if !strings.Contains(logs.String(), message) {
+			t.Fatalf("missing progress %q: %s", message, &logs)
+		}
+	}
+	for _, credential := range []string{"fixture-id", "fixture-secret", "fixture-access", "fixture-refresh", "Authorization", "https://accounts.spotify.com"} {
+		if strings.Contains(logs.String(), credential) {
+			t.Fatalf("credential in logs: %s", &logs)
+		}
+	}
 	files, err := filepath.Glob(filepath.Join(os.Getenv("SPF_TOKEN_CACHE"), "*.spf-token.json"))
 	if err != nil || len(files) != 1 {
 		t.Fatalf("cache files=%d err=%v", len(files), err)
@@ -130,10 +142,11 @@ func TestRunExchangeRedirectAndReuseCacheAcrossPortChanges(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Setenv("SPF_OAUTH_PORT", strconv.Itoa(listener.Addr().(*net.TCPAddr).Port))
-		var output bytes.Buffer
-		err = run(ctx, []string{"-config", path}, &output, io.Discard)
+		t.Setenv("SPF_LOG_LEVEL", "") // A cached run proves the default info filtering.
+		var output, cachedLogs bytes.Buffer
+		err = run(ctx, []string{"-config", path}, &output, &cachedLogs)
 		listener.Close()
-		if err != nil || strings.Contains(output.String(), "Please log in") {
+		if err != nil || output.Len() != 0 || !strings.Contains(cachedLogs.String(), "level=INFO") || strings.Contains(cachedLogs.String(), "level=DEBUG") {
 			t.Fatalf("cached run tried listener: %v", err)
 		}
 	}
@@ -178,7 +191,7 @@ func TestRunNoPlaylistsWithOccupiedCallbackPort(t *testing.T) {
 	if err := run(context.Background(), []string{path}, &output, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "No playlists configured") {
+	if output.Len() != 0 {
 		t.Fatal("not a no-op")
 	}
 	if _, err := os.Stat(os.Getenv("SPF_TOKEN_CACHE")); !os.IsNotExist(err) {

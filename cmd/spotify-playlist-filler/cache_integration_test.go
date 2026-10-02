@@ -41,8 +41,9 @@ func TestRunCachedAuthenticationStopsOnRevocationWithoutMutationRetry(t *testing
 				t.Fatal(err)
 			}
 			t.Setenv("SPF_TOKEN_CACHE", dir)
-			t.Setenv("SPOTIFY_ID", "test-id")
-			t.Setenv("SPOTIFY_SECRET", "synthetic-secret")
+			t.Setenv("SPF_SPOTIFY_ID", "test-id")
+			t.Setenv("SPF_LOG_LEVEL", "debug")
+			t.Setenv("SPF_SPOTIFY_SECRET", "synthetic-secret")
 			scopes := "playlist-modify-private playlist-modify-public playlist-read-collaborative playlist-read-private user-read-private"
 			hash := sha256.Sum256([]byte("test-id\n" + scopes))
 			path := filepath.Join(dir, hex.EncodeToString(hash[:])+".spf-token.json")
@@ -97,6 +98,12 @@ func TestRunCachedAuthenticationStopsOnRevocationWithoutMutationRetry(t *testing
 			}
 			if err == nil || strings.Contains(err.Error(), "synthetic-") || strings.Contains(out.String(), "Please log in") || writes != expected {
 				t.Fatalf("unsafe CLI auth failure: writes=%d err=%v output=%s", writes, err, &out)
+			}
+			if strings.Count(stderr.String(), "level=ERROR") != 1 || !strings.Contains(stderr.String(), "inspect playlists before rerunning") || strings.Contains(stderr.String(), "synthetic-") || strings.Contains(stderr.String(), "Authorization") {
+				t.Fatalf("unsafe/missing failure log: %s", &stderr)
+			}
+			if failure == "mutation" && !strings.Contains(stderr.String(), "remove batch") {
+				t.Fatal("missing batch progress")
 			}
 			if _, err := os.Stat(path); !os.IsNotExist(err) {
 				t.Fatal("revoked cache retained")
