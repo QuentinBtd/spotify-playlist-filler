@@ -10,3 +10,8 @@ linux/amd64/**
 linux/arm64/**
 !linux/amd64/spotify-playlist-filler
 !linux/arm64/spotify-playlist-filler
+# Explicitly keep OAuth cache files out of the build context.
+*.spf-token.json
+**/*.spf-token.json
+.spf-token-*
+**/.spf-token-*

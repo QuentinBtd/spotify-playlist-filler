@@ -4,6 +4,10 @@
 .env.*
 !.env.example
 
+# OAuth cache files (including an overridden directory inside a checkout)
+*.spf-token.json
+.spf-token-*
+
 # Go build artifacts and test output
 /bin/
 /build/

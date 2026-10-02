@@ -78,6 +78,7 @@ type outputWriter func([]byte) (int, error)
 func (write outputWriter) Write(data []byte) (int, error) { return write(data) }
 
 func TestLoginLocalServerCanceledAndClosed(t *testing.T) {
+	t.Setenv("SPF_TOKEN_CACHE", t.TempDir()+"/tokens")
 	probe, err := net.Listen("tcp", "127.0.0.1:8080")
 	if err != nil {
 		t.Skip("local callback port already occupied")

@@ -1,4 +1,4 @@
-// Package spotifyauth manages a single interactive OAuth login on loopback.
+// Package spotifyauth manages cached OAuth tokens and loopback authorization.
 package spotifyauth
 
 import (
@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -61,10 +62,29 @@ func callbackHandler(state string, result chan<- *http.Client, exchange func(*ht
 	})
 }
 
-// Login waits up to five minutes. No token is persisted or logged.
+// Login reuses or refreshes cached authorization before starting a loopback login.
+// Interactive login waits up to five minutes. Tokens and secrets are never logged.
 func Login(ctx context.Context, id, secret string, output io.Writer) (*http.Client, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	auth := sdk.New(sdk.WithClientID(id), sdk.WithClientSecret(secret), sdk.WithRedirectURL(RedirectURI), sdk.WithScopes(scopes...))
+	cache, err := newTokenCache(id)
+	if err != nil {
+		return nil, err
+	}
+	token, err := cache.load()
+	if err != nil {
+		return nil, err
+	}
+	if token != nil {
+		source := newSource(ctx, id, secret, cache, token)
+		if _, err := source.Token(); err == nil {
+			client := authorizationClient(ctx, source)
+			return client, nil
+		} else if !errors.Is(err, errRevoked) {
+			return nil, err
+		}
 	}
 	state, err := randomState()
 	if err != nil {
@@ -75,19 +95,25 @@ func Login(ctx context.Context, id, secret string, output io.Writer) (*http.Clie
 		return nil, fmt.Errorf("listen for OAuth callback: %w", err)
 	}
 	defer listener.Close()
-	auth := sdk.New(sdk.WithClientID(id), sdk.WithClientSecret(secret), sdk.WithRedirectURL(RedirectURI), sdk.WithScopes(sdk.ScopeUserReadPrivate, sdk.ScopePlaylistReadPrivate, sdk.ScopePlaylistReadCollaborative, sdk.ScopePlaylistModifyPublic, sdk.ScopePlaylistModifyPrivate))
 	result := make(chan *http.Client, 1)
+	persistErr := make(chan error, 1)
 	mux := http.NewServeMux()
 	mux.Handle("/callback", callbackHandler(state, result, func(r *http.Request) (*http.Client, error) {
-		exchangeCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		exchangeCtx, cancel := context.WithTimeout(oauthContext(r.Context()), 30*time.Second)
 		defer cancel()
 		token, err := auth.Token(exchangeCtx, state, r)
 		if err != nil {
 			return nil, err
 		}
 		// Use the application's lifetime, not the soon-to-be-canceled callback context.
-		httpClient := auth.Client(ctx, token)
-		httpClient.Timeout = 30 * time.Second
+		if err := cache.save(token); err != nil {
+			select {
+			case persistErr <- err:
+			default:
+			}
+			return nil, err
+		}
+		httpClient := authorizationClient(ctx, newSource(ctx, id, secret, cache, token))
 		return httpClient, nil
 	}))
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
@@ -110,6 +136,8 @@ func Login(ctx context.Context, id, secret string, output io.Writer) (*http.Clie
 	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	select {
+	case err := <-persistErr:
+		return nil, err
 	case client := <-result:
 		return client, nil
 	case err := <-serverErr:

@@ -20,7 +20,8 @@ tool, not an append-only importer: back up important playlists before running it
 - A Spotify developer application and an account allowed to modify the playlists.
 - Register **`http://127.0.0.1:8080/callback`** in your application's redirect URIs.
   Spotify requires an explicit loopback IP, not `localhost`.
-- Run on the same machine as your browser, with local TCP port 8080 available.
+- For initial authorization (or reauthorization), run on the same machine as your
+  browser with local TCP port 8080 available. Cached runs need neither.
 
 From the repository root, review `.mise.toml` before trusting it, then install
 its pinned toolchain (no shell activation is needed for `mise run`):
@@ -37,8 +38,10 @@ mise run build
 ./bin/spotify-playlist-filler -config config.yml
 ```
 
-Open the printed Spotify authorization URL in your browser. Tokens are held in
-memory only; each invocation requires login. Login expires after five minutes;
+Open the printed Spotify authorization URL in your browser on the first run.
+Subsequent runs reuse the private local token cache and automatically refresh
+expired access tokens, without opening the callback listener. Interactive login
+expires after five minutes;
 Ctrl+C cancels login or processing. The callback server binds only to loopback
 and closes after login. The account must be authorized by your developer app;
 Spotify's app access restrictions and API availability still apply.
@@ -87,6 +90,95 @@ Each playlist needs an ID and at least one artist. Artists need either an ID or,
 when `use_name_instead_of_uri` is true, an exact artist name. Album exclusions
 require IDs. Empty `playlists` is a no-op. Unknown or duplicate YAML keys are
 rejected to prevent typos from silently changing a destructive operation.
+
+### Persistent OAuth cache
+
+The default directory is `os.UserCacheDir()/spotify-playlist-filler` (normally
+`$XDG_CACHE_HOME/spotify-playlist-filler` or `~/.cache/spotify-playlist-filler` on
+Linux, `~/Library/Caches/spotify-playlist-filler` on macOS and
+`%LocalAppData%/spotify-playlist-filler` on Windows). `SPF_TOKEN_CACHE` overrides
+this **directory**, not an individual file; an empty value selects the default:
+
+```sh
+export SPF_TOKEN_CACHE="$HOME/.local/state/spf-oauth"
+./bin/spotify-playlist-filler -config config.yml
+```
+
+Each `<sha256>.spf-token.json` file is keyed by application client ID and the
+canonical requested scope set. Its explicit versioned metadata records those
+values, not the client secret. Metadata describes this application's authorization
+request, not verified token claims or a decoded JWT. The cache contains access and
+refresh tokens, their type and the access-token expiry. `SPOTIFY_SECRET` is still
+required by the existing configuration contract and used for OAuth, but is **never
+persisted in the cache**. Tokens and OAuth response bodies are not logged.
+
+**One account per client/scope cache.** To switch accounts, stop running SPF, remove
+that cache's `*.spf-token.json` file and authorize again, or select a separate
+`SPF_TOKEN_CACHE` directory. Removing a local cache does not revoke the application
+on Spotify; use your Spotify account's app settings to revoke access. Run only one
+CLI process per cache at a time: requests within one process serialize refresh,
+but this is not an interprocess credential store or distributed lock.
+
+Files are **plaintext, not encrypted**. On Unix the dedicated directory must be
+0700 and the token file 0600; newly created files use these modes and atomic
+same-directory replacement after syncing the temporary file. Existing insecure
+permissions, symlinks (including ancestor symlinks), non-regular token files and
+non-sticky group/world-writable ancestors are rejected rather than repaired.
+Use a private location owned by the running user. Cache corruption or filesystem
+errors stop the run; fix permissions or deliberately remove the bad cache instead
+of expecting a silent fallback. Do not place caches in shared directories, source
+control, backups accessible to other users or container build contexts. Generated
+cache and temporary filenames are excluded by `.gitignore` and `.dockerignore`.
+Windows modes do not enforce Unix privacy: secure the directory with user-only
+Windows ACLs yourself. Network filesystems and Windows do not provide identical
+Unix rename/permission guarantees; use a local private filesystem.
+
+Refresh responses may rotate the refresh token; the replacement is persisted
+before an authenticated request is allowed. If no replacement is returned, the
+previous refresh token is retained. A persistence failure is surfaced and stops
+further requests in that process; there is no silent in-memory-only success.
+Transport failures, HTTP 5xx and other non-`invalid_grant` refresh errors stop the
+run without deleting the cache or prompting for login; retry the command later.
+OAuth token-endpoint redirects are refused and exchanges/refreshes are bounded
+by a 30-second HTTP timeout and the application's cancellation context.
+
+Spotify's [refresh guide](https://developer.spotify.com/documentation/web-api/tutorials/refreshing-tokens)
+and [June 18, 2026 announcement](https://developer.spotify.com/blog/2026-06-18-refresh-token-expiration)
+describe a **six-month refresh-token lifetime from the original authorization**;
+refreshing access tokens does not extend it. This applies to existing apps from
+July 20, 2026. SPF relies on Spotify's definitive HTTP 400 `invalid_grant` response,
+not guessed token issuance dates: it discards the cache before reauthorization.
+During API processing, HTTP 401 also invalidates cached authorization and stops
+processing; reauthorization happens on the next invocation, never by retrying a
+playlist mutation. Reads that fail authorization abort before that playlist's
+writes. A mutation that itself fails may already have been applied: inspect the
+playlist before rerunning. HTTP 403 alone is not treated as token revocation.
+
+#### Docker persistence and limits
+
+This branch does not define a Docker image. When using an image built separately,
+authorize with the native CLI first, then bind-mount the same private directory at
+runtime and set `SPF_TOKEN_CACHE` to its container path. For example, add these
+options to your image's normal `docker run` command:
+
+```sh
+--user "$(id -u):$(id -g)" \
+--mount "type=bind,src=$HOME/.cache/spotify-playlist-filler,dst=/var/lib/spf-tokens" \
+-e SPF_TOKEN_CACHE=/var/lib/spf-tokens
+```
+
+The host directory must already exist with mode 0700 and be readable/writable by
+the container's runtime UID; pass config and OAuth credentials at runtime, never
+through Dockerfile `ARG`, `ENV` or `COPY`. A private initialized named volume also
+works, but its mounted cache directory must be owned by that UID with mode 0700
+(default 0755 volume roots are rejected). An ephemeral container without a volume
+loses its login on removal. Cached runs do not need a published callback port.
+When reauthorization is required, run the native CLI again against this same cache
+with the container stopped. Ordinary port publishing does not make the
+container's loopback-only callback accessible from a host browser; this change
+does not add a remote/headless login flow. Docker Desktop bind mounts may not
+preserve Unix permissions; use a suitably protected native volume instead. No
+Docker runtime or real Spotify account verification was performed for this change.
 
 ### Synchronization behavior and safety
 
