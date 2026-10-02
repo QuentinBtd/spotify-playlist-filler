@@ -19,6 +19,10 @@ coverage.out
 *.test
 *.prof
 
+# Python validation script caches
+__pycache__/
+*.py[cod]
+
 # Editor and OS metadata
 .idea/
 .vscode/
