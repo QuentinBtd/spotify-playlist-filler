@@ -42,7 +42,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "No playlists configured; nothing to do.")
 		return nil
 	}
-	client, err := spotifyauth.Login(ctx, cfg.SpotifyID, cfg.SpotifySecret, stdout)
+	client, err := spotifyauth.LoginWithPort(ctx, cfg.SpotifyID, cfg.SpotifySecret, cfg.OAuthPort, stdout)
 	if err != nil {
 		return err
 	}

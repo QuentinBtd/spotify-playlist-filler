@@ -1,5 +1,7 @@
-# Copy to config.yml and select your own playlists before running.
+# Copy to config.yaml and select your own playlists before running.
 # Prefer SPOTIFY_ID and SPOTIFY_SECRET environment variables.
+# Register http://127.0.0.1:PORT/callback for your chosen port in Spotify.
+oauth_port: 8080 # SPF_OAUTH_PORT overrides this; integer 1..65535
 SPOTIFY_SECRET: ""
 SPOTIFY_ID: ""
 verbose: false

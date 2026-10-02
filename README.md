@@ -18,10 +18,11 @@ tool, not an append-only importer: back up important playlists before running it
   not those operating-system prerequisites. On Windows use WSL for these tasks;
   cross-building Windows executables from Linux/macOS needs no Windows compiler.
 - A Spotify developer application and an account allowed to modify the playlists.
-- Register **`http://127.0.0.1:8080/callback`** in your application's redirect URIs.
-  Spotify requires an explicit loopback IP, not `localhost`.
+- Register the chosen **`http://127.0.0.1:PORT/callback`** (default PORT: 8080)
+  in the **Spotify Developer dashboard**, under your application's redirect URIs.
+  Use the exact chosen port and explicit loopback IP, not `localhost`.
 - For initial authorization (or reauthorization), run on the same machine as your
-  browser with local TCP port 8080 available. Cached runs need neither.
+  browser with that local TCP port available. Cached runs need neither.
 
 From the repository root, review `.mise.toml` before trusting it, then install
 its pinned toolchain (no shell activation is needed for `mise run`):
@@ -30,12 +31,12 @@ its pinned toolchain (no shell activation is needed for `mise run`):
 mise trust .mise.toml
 mise install
 mise tasks
-cp config.example.yml config.yml
-# Edit config.yml: select your own playlists and artists.
+cp config.example.yaml config.yaml
+# Edit config.yaml: select your own playlists and artists.
 export SPOTIFY_ID='your-client-id'
 export SPOTIFY_SECRET='your-client-secret'
 mise run build
-./bin/spotify-playlist-filler -config config.yml
+./bin/spotify-playlist-filler -config config.yaml
 ```
 
 Open the printed Spotify authorization URL in your browser on the first run.
@@ -50,18 +51,25 @@ Spotify's app access restrictions and API availability still apply.
 A single positional config path also works:
 
 ```sh
-mise exec -- go run ./cmd/spotify-playlist-filler -config /path/to/config.yml
-./bin/spotify-playlist-filler /path/to/config.yml
+mise exec -- go run ./cmd/spotify-playlist-filler -config /path/to/config.yaml
+./bin/spotify-playlist-filler /path/to/custom.yml
 ```
 
 ## Configuration
 
-The YAML keys remain compatible with the former `config.yml`:
+The default is `config.yaml`. If it is absent, an existing `config.yml` is used
+for compatibility. `config.yaml` wins when both exist; read or decode failures
+never fall back. Explicit `-config PATH` or a legacy positional path is used
+exactly as supplied, including `.yml` paths; custom errors are not masked.
+`CONFIG` selects an explicit path for `mise run run` (see Development below).
+
+Existing YAML keys remain compatible:
 
 ```yaml
 SPOTIFY_ID: ""     # Prefer the environment variable
 SPOTIFY_SECRET: "" # Prefer the environment variable
 verbose: false
+oauth_port: 8080  # Optional; callback port, integer 1..65535
 playlists:
   - name: "My playlist"
     uri: "3RiBOmtagQlYUd2XOeWPUd" # Bare Spotify ID, not a URL or spotify: URI
@@ -84,12 +92,32 @@ Nonempty `SPOTIFY_ID`, `SPOTIFY_SECRET` and `SPF_VERBOSE` environment variables
 override YAML values. `SPF_VERBOSE` accepts Go boolean values such as `true` and
 `false`; invalid values fail validation. Verbose mode prints playlist progress.
 The config file is required even when credentials come from the environment.
-Never commit credentials; local `config.yml`, `.env` files and binaries are ignored.
+Never commit credentials; local `config.yaml`, `config.yml`, `.env` files and
+binaries are ignored.
 
 Each playlist needs an ID and at least one artist. Artists need either an ID or,
 when `use_name_instead_of_uri` is true, an exact artist name. Album exclusions
 require IDs. Empty `playlists` is a no-op. Unknown or duplicate YAML keys are
 rejected to prevent typos from silently changing a destructive operation.
+
+### OAuth callback port
+
+Set `oauth_port: 9000` in YAML or use a nonempty environment override:
+
+```sh
+SPF_OAUTH_PORT=9000 mise run run
+# With a custom config path (spaces and .yml are supported):
+CONFIG='/path/to/custom.yml' SPF_OAUTH_PORT=9000 mise run run
+```
+
+`SPF_OAUTH_PORT` takes precedence over YAML; an empty value leaves YAML unchanged.
+The default is 8080. Invalid values (including zero or ports above 65535) stop
+before login or playlist changes, with no configured value echoed in the error.
+Only the port is configurable: the listener remains `127.0.0.1` and the redirect
+is always `http://127.0.0.1:PORT/callback`. Register that chosen URI in your Spotify
+Developer dashboard **before first login** and open the printed URL in a browser
+on the same host. Changing ports does not invalidate healthy cached OAuth
+authorization; cached runs open no callback listener.
 
 ### Persistent OAuth cache
 
@@ -101,7 +129,7 @@ this **directory**, not an individual file; an empty value selects the default:
 
 ```sh
 export SPF_TOKEN_CACHE="$HOME/.local/state/spf-oauth"
-./bin/spotify-playlist-filler -config config.yml
+./bin/spotify-playlist-filler -config config.yaml
 ```
 
 Each `<sha256>.spf-token.json` file is keyed by application client ID and the
@@ -281,11 +309,14 @@ mise run race        # go test -race ./...; requires system C compiler
 mise run build       # bin/spotify-playlist-filler
 mise run build-all   # six cross-builds under build/
 mise run clean       # remove only bin/, build/ and coverage.out
-mise run run         # starts real Spotify authorization; CONFIG defaults to config.yml
+mise run run         # default config.yaml (legacy config.yml fallback); may start login
 ```
 
 `mise run exec` is an alias for `mise run run`. Override the config path with
-`CONFIG=/path/to/config.yml mise run run`. Extra CLI arguments are forwarded:
+`CONFIG=/path/to/config.yaml mise run run` (or any existing `.yml` path).
+With `CONFIG` unset or empty, the CLI applies its normal default/fallback and
+accepts `mise run run -- -config PATH` or `mise run run -- PATH`.
+Extra CLI arguments are forwarded:
 `mise run run -- --help` prints usage without reading configuration or contacting
 Spotify. For other direct Go commands use `mise exec -- go ...` to select the
 pinned toolchain without shell activation; the former `GO` override is removed.
@@ -312,8 +343,10 @@ is added by this migration; CI automation is deferred.
 - `src/main.go` is replaced by `cmd/spotify-playlist-filler`; use
   `go run ./cmd/spotify-playlist-filler`, not `go run src/main.go`.
 - The formerly committed root binary is removed; use `mise run build` and `bin/`.
-- `config.yml` is now a local ignored file; copy `config.example.yml` on a fresh
-  checkout. Existing YAML keys including `uri` and `playlists` are unchanged.
+- Both `config.yaml` and legacy `config.yml` are local ignored files. Copy
+  `config.example.yaml` to `config.yaml` on a fresh checkout; existing `config.yml`
+  still works automatically when `config.yaml` is absent. Existing YAML keys
+  including `uri` and `playlists` are unchanged.
 - The old README's `PLAYLISTS_TO_FILL` key was never implemented. Use `playlists`;
   strict validation now reports that incorrect key rather than ignoring it.
 - Config flags are now actually parsed; `-config PATH` and a positional path work.

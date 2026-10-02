@@ -87,12 +87,16 @@ done
 '''
 
 [tasks.run]
-description = "Run the CLI with CONFIG (default config.yml); accepts extra CLI arguments"
+description = "Run the CLI with CONFIG (default config.yaml, legacy config.yml fallback); accepts extra CLI arguments"
 alias = "exec"
 run = '''
 #!/usr/bin/env bash
 set -euo pipefail
-exec go run ./cmd/spotify-playlist-filler -config "${CONFIG:-config.yml}" "$@"
+if [[ -n "${CONFIG:-}" ]]; then
+    exec go run ./cmd/spotify-playlist-filler -config "$CONFIG" "$@"
+fi
+# Let the CLI resolve config.yaml / legacy fallback and explicit arguments.
+exec go run ./cmd/spotify-playlist-filler "$@"
 '''
 
 [tasks.clean]

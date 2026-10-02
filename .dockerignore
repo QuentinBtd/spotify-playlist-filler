@@ -1,4 +1,4 @@
-# Deny by default, including .git, sources, credentials, config.yml, and .env.
+# Deny by default, including .git, sources, credentials, config.yaml/config.yml, and .env.
 **
 !Dockerfile
 !.dockerignore
