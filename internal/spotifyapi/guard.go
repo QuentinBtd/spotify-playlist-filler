@@ -57,7 +57,7 @@ func secureClient(raw *http.Client, baseURL string) *http.Client {
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	clone.Transport = apiTransport{base: base, next: transport}
+	clone.Transport = apiTransport{base: base, next: newReadTransport(transport)}
 	redirect := clone.CheckRedirect
 	clone.CheckRedirect = func(r *http.Request, via []*http.Request) error {
 		path, _ := r.Context().Value(playlistPathKey{}).(string)

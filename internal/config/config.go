@@ -13,13 +13,14 @@ import (
 )
 
 type Config struct {
-	OAuthPort     int        `yaml:"-"`
-	LogLevel      string     `yaml:"log_level"`
-	Deprecated    []string   `yaml:"-"`
-	Verbose       bool       `yaml:"verbose"`
-	SpotifyID     string     `yaml:"spotify_id"`
-	SpotifySecret string     `yaml:"spotify_secret"`
-	Playlists     []Playlist `yaml:"playlists"`
+	ReadConcurrency int        `yaml:"-"`
+	OAuthPort       int        `yaml:"-"`
+	LogLevel        string     `yaml:"log_level"`
+	Deprecated      []string   `yaml:"-"`
+	Verbose         bool       `yaml:"verbose"`
+	SpotifyID       string     `yaml:"spotify_id"`
+	SpotifySecret   string     `yaml:"spotify_secret"`
+	Playlists       []Playlist `yaml:"playlists"`
 }
 
 type Playlist struct {
@@ -82,17 +83,18 @@ func ParseArgs(args []string, output io.Writer) (string, error) {
 
 // Load applies environment overrides after decoding the file.
 func Load(path string, lookup func(string) (string, bool)) (Config, error) {
-	cfg := Config{OAuthPort: 8080}
+	cfg := Config{OAuthPort: 8080, ReadConcurrency: 3}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return cfg, fmt.Errorf("read config %q: %w", path, err)
 	}
 	raw := struct {
-		Config       `yaml:",inline"`
-		OAuthPort    interface{} `yaml:"oauth_port"`
-		LegacyID     string      `yaml:"SPOTIFY_ID"`
-		LegacySecret string      `yaml:"SPOTIFY_SECRET"`
-	}{Config: cfg, OAuthPort: 8080}
+		Config          `yaml:",inline"`
+		OAuthPort       interface{} `yaml:"oauth_port"`
+		ReadConcurrency interface{} `yaml:"read_concurrency"`
+		LegacyID        string      `yaml:"SPOTIFY_ID"`
+		LegacySecret    string      `yaml:"SPOTIFY_SECRET"`
+	}{Config: cfg, OAuthPort: 8080, ReadConcurrency: 3}
 	if err := yaml.UnmarshalStrict(data, &raw); err != nil {
 		// Decoder diagnostics can contain credential values or arbitrary YAML keys.
 		return cfg, fmt.Errorf("decode config: invalid YAML, unknown/duplicate fields or invalid field types")
@@ -109,6 +111,20 @@ func Load(path string, lookup func(string) (string, bool)) (Config, error) {
 		}
 	}
 	cfg = raw.Config
+	concurrency, ok := raw.ReadConcurrency.(int)
+	if value, exists := lookup("SPF_READ_CONCURRENCY"); exists && value != "" {
+		concurrency, err = strconv.Atoi(value)
+		ok = err == nil
+		for _, digit := range value {
+			if digit < '0' || digit > '9' {
+				ok = false
+			}
+		}
+	}
+	if !ok || concurrency < 1 || concurrency > 8 {
+		return cfg, fmt.Errorf("read_concurrency / SPF_READ_CONCURRENCY must be an integer from 1 to 8")
+	}
+	cfg.ReadConcurrency = concurrency
 	for _, name := range []string{"SPOTIFY_ID", "SPOTIFY_SECRET", "verbose"} {
 		if _, exists := keys[name]; exists {
 			cfg.Deprecated = append(cfg.Deprecated, name+" YAML")
