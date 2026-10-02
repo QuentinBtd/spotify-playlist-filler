@@ -116,14 +116,61 @@ rejected to prevent typos from silently changing a destructive operation.
 cmd/spotify-playlist-filler/  CLI and application wiring
 internal/config/             YAML, environment overrides and arguments
 internal/app/                synchronization, exclusions, diff/shuffle/batches
-internal/spotifyapi/         Spotify SDK adapter and pagination
+internal/spotifyapi/         Playlist Items HTTP adapter, catalogue SDK and pagination
 internal/spotifyauth/        interactive OAuth and loopback callback lifecycle
 ```
 
-The module path is `github.com/QuentinBtd/spotify-playlist-filler`. The existing
-Spotify SDK version is intentionally retained; API compatibility and real-account
-access must be verified separately with an authorized Spotify application.
-Tests use in-memory catalogues and local HTTP fixtures, never a real playlist.
+The module path is `github.com/QuentinBtd/spotify-playlist-filler`.
+
+### Spotify Playlist Items API contract
+
+Playlist reads and writes use **`/playlists/{playlist_id}/items`**, following
+Spotify's [February 2026 migration guide](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide):
+
+- [GET Playlist Items](https://developer.spotify.com/documentation/web-api/reference/get-playlists-items)
+  decodes `items[].item` (not the legacy `items[].track`), checks the item's
+  `type`, and follows the returned `next` URL until it is null. Only
+  non-local music tracks with an ID participate in synchronization; null items,
+  episodes and unknown item types are left untouched. If any page fails, no
+  partial playlist-track list is returned. Page objects require a non-null `items`
+  array, an explicit `item` field in each entry, and a `next` URL or null.
+  Malformed pages, trailing JSON and pagination cycles fail before writes.
+- [POST Add Items](https://developer.spotify.com/documentation/web-api/reference/add-items-to-playlist)
+  sends `{"uris":["spotify:track:<id>"]}` and expects HTTP 201. No `position`
+  is supplied, so tracks append in batch order.
+- [DELETE Remove Items](https://developer.spotify.com/documentation/web-api/reference/remove-items-playlist)
+  sends `{"items":[{"uri":"spotify:track:<id>"}]}` and expects HTTP 200.
+  No positions or snapshot constraint are supplied, preserving removal of all
+  occurrences of the specified obsolete track IDs.
+
+Both mutations are limited to 100 track IDs per request; application batching
+is unchanged. There is **no automatic fallback to `/tracks` and no automatic
+retry**, including for HTTP 429. Spotify HTTP errors retain their status and
+message; context cancellation and the authenticated client's 30-second timeout
+apply to playlist requests as well as catalogue requests.
+
+The logged-in user must own the playlist or be a collaborator; GET may return
+403 otherwise. Existing OAuth scopes for private/collaborative reads and
+public/private modifications are retained. Developer-app access restrictions
+still apply; changing the route does not grant account or playlist access.
+
+The existing SDK (`github.com/zmb3/spotify/v2 v2.2.0`) remains responsible for
+OAuth, current-user, artist, album and search operations. Its playlist methods
+still use the legacy contract, so the small Playlist Items adapter shares the
+same guarded HTTP client rather than rewriting SDK URLs or responses. The
+client is a shallow clone of the authenticated client, preserving its OAuth
+transport, timeout and redirect policy without mutating the supplied client.
+Before OAuth runs, requests and redirects are confined to the configured API
+origin (`https://api.spotify.com` in production); Playlist Items pagination and
+redirects must also keep the same playlist `/items` path. Safe relative `next`
+URLs are resolved without rewriting their query; redirects are bounded at ten.
+This is a playlist-endpoint migration, not a claim that every SDK operation is
+compatible with all current Development Mode restrictions. Other catalogue or
+search restrictions need separate verification with your authorized app.
+
+Tests use in-memory catalogues and synthetic local HTTP fixtures, never a real
+playlist. **No live Spotify account/API verification has been performed for this
+migration**; access and real-account behavior must be verified separately.
 
 ## Development and builds
 

@@ -10,15 +10,13 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/zmb3/spotify/v2"
 )
 
 func TestCallbackRejectsStateBeforeExchangeAndCompletesOnce(t *testing.T) {
 	calls := 0
-	expected := spotify.New(http.DefaultClient)
-	result := make(chan *spotify.Client, 1)
-	handler := callbackHandler("expected", result, func(r *http.Request) (*spotify.Client, error) { calls++; return expected, nil })
+	expected := http.DefaultClient
+	result := make(chan *http.Client, 1)
+	handler := callbackHandler("expected", result, func(r *http.Request) (*http.Client, error) { calls++; return expected, nil })
 	for _, state := range []string{"", "wrong"} {
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, httptest.NewRequest("GET", "/callback?state="+state, nil))
@@ -39,7 +37,7 @@ func TestCallbackRejectsStateBeforeExchangeAndCompletesOnce(t *testing.T) {
 }
 
 func TestCallbackExchangeErrorDoesNotExposeSecret(t *testing.T) {
-	handler := callbackHandler("state", make(chan *spotify.Client, 1), func(*http.Request) (*spotify.Client, error) { return nil, errors.New("private token detail") })
+	handler := callbackHandler("state", make(chan *http.Client, 1), func(*http.Request) (*http.Client, error) { return nil, errors.New("private token detail") })
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest("GET", "/callback?state=state", nil))
 	if w.Code != http.StatusForbidden || w.Body.String() != "Spotify authorization failed. Please try again.\n" {

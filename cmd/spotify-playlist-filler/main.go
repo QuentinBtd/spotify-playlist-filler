@@ -46,12 +46,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	user, err := client.CurrentUser(ctx)
+	catalog := spotifyapi.New(client)
+	user, err := catalog.CurrentUser(ctx)
 	if err != nil {
 		return fmt.Errorf("read current Spotify user: %w", err)
 	}
 	fmt.Fprintln(stdout, "You are logged in as:", user.ID)
-	catalog := spotifyapi.New(client)
 	for _, playlist := range cfg.Playlists {
 		if cfg.Verbose {
 			fmt.Fprintf(stderr, "Processing playlist %q (%s)\n", playlist.Name, playlist.ID)

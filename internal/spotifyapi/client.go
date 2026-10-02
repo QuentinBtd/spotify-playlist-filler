@@ -5,42 +5,74 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 
 	"github.com/QuentinBtd/spotify-playlist-filler/internal/app"
 	"github.com/zmb3/spotify/v2"
 )
 
-type Client struct{ client *spotify.Client }
+type Client struct {
+	client  *spotify.Client
+	http    *http.Client
+	baseURL string
+}
 
-func New(client *spotify.Client) *Client { return &Client{client: client} }
+// New shares the authenticated transport and timeout with the catalogue SDK.
+// Playlist requests use the current /items contract; SDK retries stay disabled.
+func New(httpClient *http.Client) *Client {
+	return newClient(httpClient, "https://api.spotify.com/v1/")
+}
+
+func newClient(httpClient *http.Client, baseURL string) *Client {
+	safe := secureClient(httpClient, baseURL)
+	return &Client{client: spotify.New(safe, spotify.WithBaseURL(baseURL), spotify.WithRetry(false)), http: safe, baseURL: baseURL}
+}
 
 var _ app.Catalog = (*Client)(nil)
 
+// CurrentUser uses the same guarded OAuth client as playlist and catalogue reads.
+func (c *Client) CurrentUser(ctx context.Context) (*spotify.PrivateUser, error) {
+	return c.client.CurrentUser(ctx)
+}
+
 func (c *Client) PlaylistTracks(ctx context.Context, id spotify.ID) ([]spotify.ID, error) {
-	// v2.2.0's union decoder requires nonstandard track/episode boolean flags.
-	// The track endpoint decodes the standard type discriminator reliably.
-	page, err := c.client.GetPlaylistTracks(ctx, id)
-	if err != nil {
-		return nil, err
-	}
 	var result []spotify.ID
-	for {
-		for _, item := range page.Tracks {
-			if item.IsLocal || item.Track.Type != "track" {
+	visited := make(map[string]bool)
+	for next := c.playlistItemsURL(id); next != ""; {
+		u, err := url.Parse(next)
+		if err != nil {
+			return nil, err
+		}
+		// Normalize origin and query spelling only for cycle detection. The
+		// original returned query is still used for the actual request.
+		key := origin(u) + u.EscapedPath() + "?" + u.Query().Encode()
+		if visited[key] {
+			return nil, fmt.Errorf("playlist items pagination cycle")
+		}
+		visited[key] = true
+		var page playlistItemsPage
+		if err := c.playlistRequest(ctx, http.MethodGet, next, nil, &page, http.StatusOK); err != nil {
+			return nil, err
+		}
+		for _, entry := range page.Items {
+			item := entry.Item
+			if entry.IsLocal || item == nil || item.IsLocal || item.Type != "track" {
 				continue
 			}
-			if item.Track.ID != "" {
-				result = append(result, item.Track.ID)
+			if item.ID != "" {
+				result = append(result, item.ID)
 			}
 		}
-		err = c.client.NextPage(ctx, page)
-		if errors.Is(err, spotify.ErrNoMorePages) {
-			return result, nil
+		if page.Next == "" {
+			break
 		}
+		next, err = c.resolveItemsNext(next, page.Next, c.playlistItemsURL(id))
 		if err != nil {
 			return nil, err
 		}
 	}
+	return result, nil
 }
 
 func (c *Client) ArtistAlbums(ctx context.Context, id spotify.ID) ([]app.Album, error) {
@@ -114,11 +146,38 @@ func (c *Client) SearchArtist(ctx context.Context, name string) (spotify.ID, err
 }
 
 func (c *Client) AddTracks(ctx context.Context, id spotify.ID, tracks ...spotify.ID) error {
-	_, err := c.client.AddTracksToPlaylist(ctx, id, tracks...)
-	return err
+	if len(tracks) > 100 {
+		return fmt.Errorf("add playlist items: maximum 100 tracks per request")
+	}
+	uris := make([]string, len(tracks))
+	for i, track := range tracks {
+		uris[i] = "spotify:track:" + string(track)
+	}
+	body := struct {
+		URIs []string `json:"uris"`
+	}{URIs: uris}
+	var snapshot struct {
+		ID string `json:"snapshot_id"`
+	}
+	return c.playlistRequest(ctx, http.MethodPost, c.playlistItemsURL(id), body, &snapshot, http.StatusCreated)
 }
 
 func (c *Client) RemoveTracks(ctx context.Context, id spotify.ID, tracks ...spotify.ID) error {
-	_, err := c.client.RemoveTracksFromPlaylist(ctx, id, tracks...)
-	return err
+	if len(tracks) > 100 {
+		return fmt.Errorf("remove playlist items: maximum 100 tracks per request")
+	}
+	type playlistURI struct {
+		URI string `json:"uri"`
+	}
+	items := make([]playlistURI, len(tracks))
+	for i, track := range tracks {
+		items[i].URI = "spotify:track:" + string(track)
+	}
+	body := struct {
+		Items []playlistURI `json:"items"`
+	}{Items: items}
+	var snapshot struct {
+		ID string `json:"snapshot_id"`
+	}
+	return c.playlistRequest(ctx, http.MethodDelete, c.playlistItemsURL(id), body, &snapshot, http.StatusOK)
 }
