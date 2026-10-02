@@ -69,6 +69,7 @@ Canonical YAML uses lowercase keys:
 spotify_id: ""     # Prefer SPF_SPOTIFY_ID
 spotify_secret: "" # Prefer SPF_SPOTIFY_SECRET
 log_level: info     # debug, info, warn or error
+read_concurrency: 3 # 1..8; SPF_READ_CONCURRENCY overrides this
 oauth_port: 8080  # Optional; callback port, integer 1..65535
 playlists:
   - name: "My playlist"
@@ -93,10 +94,14 @@ environment aliases whenever set; an explicitly empty canonical credential fails
 validation rather than falling back. A nonempty `SPF_LOG_LEVEL` overrides
 `log_level`. Levels are `debug`, `info`, `warn` and `error` (default: `info`),
 validated before authentication, callback listeners or playlist mutations.
-Logs use Go's structured text logger on **stderr**: info reports synchronization
-and login progress, debug adds page/track/batch counts, warn reports deprecated
-settings and skipped unsupported items, and error reports failure once. Raw
-upstream errors, credentials, tokens, Authorization headers and config contents
+Logs use Go's structured text logger on **stderr**: info reports synchronization,
+login, completed playlist counts and artist/album read stages before and after
+requests. Numeric artist/album indices identify work without logging names or IDs.
+Debug adds page and cumulative catalogue counts; warn reports capacity skips,
+rate-limit waits, deprecated settings and skipped unsupported items. Error reports
+failure once. `supported_tracks` counts music tracks eligible for synchronization;
+`total_items` includes every received playlist entry (including null/local/episodes).
+Raw upstream errors, credentials, tokens, Authorization headers and config contents
 are not logged. Runtime failures report their stage rather than potentially
 sensitive upstream details; synchronization failures advise inspecting playlists.
 The interactive authorization URL remains on **stdout** at every log level,
@@ -257,6 +262,16 @@ Docker runtime or real Spotify account verification was performed for this chang
 
 ### Synchronization behavior and safety
 
+- `read_concurrency` defaults to **3**, accepts YAML integers from **1 to 8**, and
+  has a nonempty `SPF_READ_CONCURRENCY` environment override. Invalid values fail
+  before login. Set **1** for sequential reads. A fixed artist worker pool makes
+  at most that many catalogue GETs at once; album reads are not nested workers.
+  Overlapping artists share one album read. Results merge in configuration order,
+  independent of completion order, with global exclusions and album/track dedup.
+  First read failure or Ctrl+C cancels and joins all workers before returning;
+  that playlist has no writes. Logs may interleave at higher concurrency, and
+  per-artist album completion counts include reused shared reads. Concurrency is
+  not a fixed request quota or a guarantee of proportional speedup.
 - Fetch every page of playlist tracks, artist albums and album tracks before
   modifying that playlist. Search also checks every result page for an exact name.
 - Album exclusions from artists and the playlist form one playlist-wide union,
@@ -268,9 +283,20 @@ Docker runtime or real Spotify account verification was performed for this chang
   then add the unique desired list in randomized order.
 - Local files, null/unavailable tracks and podcast episodes are ignored and left
   untouched; shuffling only replaces supported Spotify music tracks.
+- Preflight uses the [10,000-song playlist limit](https://community.spotify.com/t5/FAQs/Is-there-a-save-limit-on-Spotify/ta-p/1215217),
+  not the current playlist's observed size. Before any removal/addition (including
+  shuffle), check unique desired tracks and the projected final item count,
+  including preserved duplicates and unsupported entries. Exactly 10,000 is
+  allowed. Overflow emits a count-only WARN and skips that playlist unchanged;
+  later playlists continue, and the CLI exits nonzero after capacity skips.
+  Nothing is truncated, split or created. The production adapter retains raw
+  counts from the same paginated read. Legacy Catalog implementations without
+  that optional count expose `total_known=false` and only a supported-track lower
+  bound; known overflow still skips, but a precise total cannot be guaranteed.
+  Concurrent external playlist edits remain outside this preflight guarantee.
 - Mutations use batches of at most 100 track IDs. Stop on the first error; do not
   retry writes automatically, since a failed response can still represent a
-  completed operation. Rate limits are reported instead of retried indefinitely.
+  completed operation. Only GET rate limits have bounded retries, described below.
 - A failed read or a missing searched artist aborts before writes to that playlist.
   Earlier playlists may already have been updated. Writes are **not atomic**:
   a failed batch can leave a partially updated playlist. Inspect it before rerunning.
@@ -311,10 +337,19 @@ Spotify's [February 2026 migration guide](https://developer.spotify.com/document
   occurrences of the specified obsolete track IDs.
 
 Both mutations are limited to 100 track IDs per request; application batching
-is unchanged. There is **no automatic fallback to `/tracks` and no automatic
-retry**, including for HTTP 429. Spotify HTTP errors retain their status and
-message; context cancellation and the authenticated client's 30-second timeout
-apply to playlist requests as well as catalogue requests.
+is unchanged. There is **no automatic fallback to `/tracks` and no mutation
+retry**, including for HTTP 429. A shared per-client GET-only layer follows
+Spotify's [rate-limit guidance](https://developer.spotify.com/documentation/web-api/concepts/rate-limits):
+at most two retries after HTTP 429 with integer `Retry-After` seconds, a one-second
+floor for zero, and a cancellable 30-second cooldown-wait budget per request.
+Missing/invalid headers or delays above that budget are surfaced without retry,
+never shortened; a valid longer delay still blocks other GETs within their wait
+budgets. After a cooldown a single recovery probe prevents workers stampeding.
+WARN logs contain waiting seconds only. SDK retries remain disabled. Other HTTP
+statuses and transport errors are not retried. Spotify HTTP errors retain their
+status and message; context cancellation and the authenticated client's 30-second
+timeout apply to playlist requests as well as catalogue requests. No numeric
+requests-per-second quota is assumed.
 
 The logged-in user must own the playlist or be a collaborator; GET may return
 403 otherwise. Existing OAuth scopes for private/collaborative reads and

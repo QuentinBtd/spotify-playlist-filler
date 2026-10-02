@@ -102,8 +102,8 @@ func (c *Client) playlistItemsURL(id spotify.ID) string {
 	return c.baseURL + "playlists/" + url.PathEscape(string(id)) + "/items"
 }
 
-// playlistRequest deliberately makes exactly one request: neither reads nor
-// mutations retry rate limits or fall back to the deprecated /tracks contract.
+// playlistRequest never falls back to the deprecated /tracks contract. The
+// shared transport may retry GET 429s; mutations always make a single attempt.
 func (c *Client) playlistRequest(ctx context.Context, method, endpoint string, body any, result any, status int) error {
 	var reader io.Reader
 	if body != nil {

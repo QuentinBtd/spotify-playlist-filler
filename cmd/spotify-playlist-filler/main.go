@@ -35,6 +35,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) (runErr e
 		if runErr != nil {
 			if configError != nil {
 				logger.Error("run failed", "stage", stage, "error", configError)
+			} else if errors.Is(runErr, app.ErrPlaylistCapacity) {
+				logger.Error("sync incomplete; capacity skips left unchanged", "stage", stage)
 			} else if stage == "synchronization" {
 				logger.Error("sync failed; inspect playlists before rerunning", "stage", stage)
 			} else {
@@ -87,14 +89,19 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) (runErr e
 	}
 	logger.Info("login complete")
 	stage = "synchronization"
+	var capacityErrors []error
 	for index, playlist := range cfg.Playlists {
 		playlistCtx := logging.WithContext(ctx, logger.With("playlist", index+1))
 		logger.Info("configured playlist", "playlist", index+1, "artists", len(playlist.Artists))
-		if err := app.Fill(playlistCtx, catalog, playlist); err != nil {
+		if err := app.FillWithConcurrency(playlistCtx, catalog, playlist, cfg.ReadConcurrency); err != nil {
+			if errors.Is(err, app.ErrPlaylistCapacity) {
+				capacityErrors = append(capacityErrors, fmt.Errorf("playlist %d: %w", index+1, err))
+				continue
+			}
 			return fmt.Errorf("fill playlist %q (%s): %w", playlist.Name, playlist.ID, err)
 		}
 		logger.Info("playlist sync complete", "playlist", index+1)
 	}
-	logger.Info("sync complete", "playlists", len(cfg.Playlists))
-	return nil
+	logger.Info("sync complete", "playlists", len(cfg.Playlists), "skipped", len(capacityErrors))
+	return errors.Join(capacityErrors...)
 }

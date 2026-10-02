@@ -5,6 +5,7 @@ oauth_port: 8080 # SPF_OAUTH_PORT overrides this; integer 1..65535
 spotify_secret: ""
 spotify_id: ""
 log_level: info # debug, info, warn or error; SPF_LOG_LEVEL overrides this
+read_concurrency: 3 # 1..8 catalogue readers; SPF_READ_CONCURRENCY overrides this
 playlists:
   - name: "Playlist Filler Test"
     uri: "3RiBOmtagQlYUd2XOeWPUd"

@@ -29,7 +29,7 @@ func playlistOperation(c *Client, ctx context.Context, method string) error {
 	}
 }
 
-func TestPlaylistHTTPFailuresAreNotRetried(t *testing.T) {
+func TestPlaylistHTTPFailuresOnlyRetryRateLimitedReads(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
 		for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusAccepted} {
 			t.Run(fmt.Sprintf("%s/%d", method, status), func(t *testing.T) {
@@ -46,8 +46,12 @@ func TestPlaylistHTTPFailuresAreNotRetried(t *testing.T) {
 				defer server.Close()
 				c := newClient(server.Client(), server.URL+"/")
 				err := playlistOperation(c, context.Background(), method)
+				expectedCalls := 1
+				if method == http.MethodGet && status == http.StatusTooManyRequests {
+					expectedCalls = 3 // Initial GET plus two bounded retries; writes never replay.
+				}
 				var apiError spotify.Error
-				if !errors.As(err, &apiError) || apiError.Status != status || apiError.Message != "fixture denied" || calls != 1 {
+				if !errors.As(err, &apiError) || apiError.Status != status || apiError.Message != "fixture denied" || calls != expectedCalls {
 					t.Fatalf("err=%v requests=%d", err, calls)
 				}
 			})

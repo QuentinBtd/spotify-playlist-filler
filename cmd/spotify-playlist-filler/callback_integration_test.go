@@ -117,7 +117,7 @@ func TestRunExchangeRedirectAndReuseCacheAcrossPortChanges(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("CLI did not finish")
 	}
-	for _, message := range []string{"sync started", "login started", "login complete", "configured playlist", "read catalogue", "playlist sync complete", "sync complete", "level=DEBUG", "skipped unsupported playlist items"} {
+	for _, message := range []string{"sync started", "login started", "login complete", "configured playlist", "playlist read complete", "artist catalogue started", "playlist sync complete", "sync complete", "level=DEBUG", "skipped unsupported playlist items"} {
 		if !strings.Contains(logs.String(), message) {
 			t.Fatalf("missing progress %q: %s", message, &logs)
 		}

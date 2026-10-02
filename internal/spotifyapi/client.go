@@ -20,7 +20,8 @@ type Client struct {
 }
 
 // New shares the authenticated transport and timeout with the catalogue SDK.
-// Playlist requests use the current /items contract; SDK retries stay disabled.
+// Playlist requests use /items; SDK retries stay disabled. The shared guarded
+// transport provides bounded GET-only 429 cooldown/retries.
 func New(httpClient *http.Client) *Client {
 	return newClient(httpClient, "https://api.spotify.com/v1/")
 }
@@ -38,27 +39,35 @@ func (c *Client) CurrentUser(ctx context.Context) (*spotify.PrivateUser, error) 
 }
 
 func (c *Client) PlaylistTracks(ctx context.Context, id spotify.ID) ([]spotify.ID, error) {
+	tracks, _, err := c.PlaylistTracksWithCount(ctx, id)
+	return tracks, err
+}
+
+// PlaylistTracksWithCount counts all received entries, including unsupported items.
+// An incomplete read returns neither tracks nor a usable count.
+func (c *Client) PlaylistTracksWithCount(ctx context.Context, id spotify.ID) ([]spotify.ID, int, error) {
 	logger := logging.FromContext(ctx)
-	skipped, pages := 0, 0
+	skipped, pages, total := 0, 0, 0
 	var result []spotify.ID
 	visited := make(map[string]bool)
 	for next := c.playlistItemsURL(id); next != ""; {
 		u, err := url.Parse(next)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		// Normalize origin and query spelling only for cycle detection. The
 		// original returned query is still used for the actual request.
 		key := origin(u) + u.EscapedPath() + "?" + u.Query().Encode()
 		if visited[key] {
-			return nil, fmt.Errorf("playlist items pagination cycle")
+			return nil, 0, fmt.Errorf("playlist items pagination cycle")
 		}
 		visited[key] = true
 		var page playlistItemsPage
 		if err := c.playlistRequest(ctx, http.MethodGet, next, nil, &page, http.StatusOK); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		pages++
+		total += len(page.Items)
 		logger.Debug("playlist items page", "page", pages, "items", len(page.Items))
 		for _, entry := range page.Items {
 			item := entry.Item
@@ -73,16 +82,19 @@ func (c *Client) PlaylistTracks(ctx context.Context, id spotify.ID) ([]spotify.I
 		}
 		next, err = c.resolveItemsNext(next, page.Next, c.playlistItemsURL(id))
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 	if skipped > 0 {
 		logger.Warn("skipped unsupported playlist items", "count", skipped)
 	}
-	return result, nil
+	return result, total, nil
 }
 
 func (c *Client) ArtistAlbums(ctx context.Context, id spotify.ID) ([]app.Album, error) {
+	logger := logging.FromContext(ctx)
+	pages := 1
+	logger.Debug("artist albums page read started", "page", pages, "cumulative_albums", 0)
 	page, err := c.client.GetArtistAlbums(ctx, id, nil)
 	if err != nil {
 		return nil, err
@@ -92,6 +104,10 @@ func (c *Client) ArtistAlbums(ctx context.Context, id spotify.ID) ([]app.Album, 
 		for _, album := range page.Albums {
 			result = append(result, app.Album{ID: album.ID})
 		}
+		logger.Debug("artist albums page", "page", pages, "albums", len(page.Albums), "cumulative_albums", len(result))
+		if page.Next != "" {
+			logger.Debug("artist albums page read started", "page", pages+1, "cumulative_albums", len(result))
+		}
 		err = c.client.NextPage(ctx, page)
 		if errors.Is(err, spotify.ErrNoMorePages) {
 			return result, nil
@@ -99,10 +115,14 @@ func (c *Client) ArtistAlbums(ctx context.Context, id spotify.ID) ([]app.Album, 
 		if err != nil {
 			return nil, err
 		}
+		pages++
 	}
 }
 
 func (c *Client) AlbumTracks(ctx context.Context, id spotify.ID) ([]spotify.ID, error) {
+	logger := logging.FromContext(ctx)
+	pages := 1
+	logger.Debug("album tracks page read started", "page", pages, "cumulative_tracks", 0)
 	page, err := c.client.GetAlbumTracks(ctx, id)
 	if err != nil {
 		return nil, err
@@ -114,6 +134,10 @@ func (c *Client) AlbumTracks(ctx context.Context, id spotify.ID) ([]spotify.ID, 
 				result = append(result, track.ID)
 			}
 		}
+		logger.Debug("album tracks page", "page", pages, "tracks", len(page.Tracks), "cumulative_tracks", len(result))
+		if page.Next != "" {
+			logger.Debug("album tracks page read started", "page", pages+1, "cumulative_tracks", len(result))
+		}
 		err = c.client.NextPage(ctx, page)
 		if errors.Is(err, spotify.ErrNoMorePages) {
 			return result, nil
@@ -121,6 +145,7 @@ func (c *Client) AlbumTracks(ctx context.Context, id spotify.ID) ([]spotify.ID, 
 		if err != nil {
 			return nil, err
 		}
+		pages++
 	}
 }
 
