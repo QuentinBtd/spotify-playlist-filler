@@ -58,26 +58,26 @@ Permissions YAML effectivement préparées : **CI/check : contents read** ; **Re
 
 Le tag/release émis par GITHUB_TOKEN ne déclenche pas une chaîne indépendante : publication basée sur les outputs dans le même workflow. Nuance documentaire actuelle : les PR `opened`/`synchronize`/`reopened` créées par GITHUB_TOKEN peuvent créer des runs **en attente d'approbation** ; prévoir de les approuver. Une GitHub App pour éviter cette étape serait une évolution, pas un prérequis caché. Aucune exécution de code PR sous `pull_request_target`, aucun secret Spotify et aucun token de publication transmis au snapshot PR.
 
-## Docker et OAuth : limite assumée
+## Docker and OAuth: persistent cache and loopback limits
 
-Le code actuel bind `127.0.0.1:8080` et attend `http://127.0.0.1:8080/callback`, URL à ouvrir manuellement dans un navigateur ; tokens en mémoire seulement. **`-p 8080:8080` en bridge ne suffit pas**, puisque le listener est sur le loopback interne du conteneur. L'image n'est pas un service headless, cron ou Kubernetes fonctionnel.
+Authorize with the native CLI first, using the same application credentials and a private `SPF_TOKEN_CACHE` directory. The callback remains `http://127.0.0.1:PORT/callback`, with `SPF_OAUTH_PORT` overriding YAML `oauth_port` (default 8080); register the exact URI in Spotify. Healthy cached runs do not open a callback listener.
 
-Premier chemin à valider : **Docker Engine Linux local, réseau host**, navigateur sur cet hôte, port 8080 libre. Après une vraie construction/publication validée, utiliser une version ou un digest vérifié, un YAML local monté readonly, variables d'environnement à l'exécution, user non-root, capabilities supprimées et no-new-privileges. Ne pas embarquer `.env`, config réelle ou secret dans le build.
-
-Exemple de forme de commande, **pas commande exécutée ni preuve que l'image existe** :
+Mount that cache read-write at runtime, with directory mode 0700 and files 0600, owned by the runtime UID. The cache is plaintext; run only one CLI per cache. Example shape only, **not an executed OAuth/container test or evidence of a published image**:
 
 ```sh
-# IMAGE doit désigner une image locale réellement construite ou un digest publié vérifié.
-# config.yml doit être lisible par UID 65532 ; ne pas rendre un fichier secret public par défaut.
-docker run --rm --network=host --read-only --cap-drop=ALL \
-  --security-opt=no-new-privileges \
-  --mount "type=bind,src=$PWD/config.yml,dst=/config.yml,readonly" \
-  -e SPOTIFY_ID -e SPOTIFY_SECRET "$IMAGE" -config /config.yml
+# IMAGE must reference an actually built local image or a verified published digest.
+# Config and token directory must be accessible to the selected UID without public permissions.
+docker run --rm --read-only --cap-drop=ALL \
+  --user "$(id -u):$(id -g)" --security-opt=no-new-privileges \
+  --mount "type=bind,src=$PWD/config.yaml,dst=/config.yaml,readonly" \
+  --mount "type=bind,src=$SPF_TOKEN_CACHE,dst=/var/lib/spf-tokens" \
+  -e SPF_SPOTIFY_ID -e SPF_SPOTIFY_SECRET -e SPF_LOG_LEVEL \
+  -e SPF_TOKEN_CACHE=/var/lib/spf-tokens "$IMAGE" -config /config.yaml
 ```
 
-Les variables d'environnement Docker sont inspectables par les opérateurs du daemon ; un YAML secret monté avec ACL/permissions adaptées est aussi supporté. Ne pas monter le socket Docker. Ne pas utiliser de healthcheck sur le callback éphémère. Avec host, l'isolation réseau est réduite même si le listener reste loopback.
+A missing or revoked authorization still requires interactive login: stop the container and reauthorize natively against the same cache. Publishing a port in bridge mode does **not** expose a listener bound to the container's loopback; changing the port does not change this restriction. Linux host networking is a separate, unvalidated interactive alternative; native-first authorization is preferred. Windows/macOS mounts may not enforce Unix permissions; prefer native binaries until the intended runtime is tested. Never change the bind to `0.0.0.0` merely to make login reachable.
 
-Docker Desktop documente host opt-in depuis 4.34, mais cela ne valide pas notre callback loopback précis sur macOS/Windows. Pour ces systèmes, préférer les binaires natifs tant qu'un test ou un changement applicatif n'est pas effectué. Une prise en charge bridge nécessite séparation explicite bind/redirect configurable, loopback sécurisé par défaut et publication limitée à l'hôte ; **ne pas remplacer aveuglément par 0.0.0.0**.
+Credentials and cache are runtime-only, never Docker build inputs. Docker environment values are visible to daemon operators; a private YAML mount with lowercase `spotify_id`/`spotify_secret` is also supported. Do not mount the Docker socket. No permanent callback healthcheck, unattended reauthorization, Docker OAuth/cache-volume validation or real publication is claimed.
 
 ## Première publication GHCR : bootstrap explicitement contrôlé
 
@@ -94,10 +94,10 @@ merge de la Release PR :
    404 du token du job ne constitue pas cette vérification.
 2. Consigner l'approbation et le tag exact de cette Release PR, puis créer la
    **variable Actions du dépôt** `SPF_GHCR_BOOTSTRAP_TAG` contenant ce tag
-   `vX.Y.Z` exact, jamais `true`, `*` ou une expression basée sur `RELEASE_TAG`.
+   `vX.Y.Z` exact, jamais `true`, `*` ou une expression basée sur `SPF_RELEASE_TAG`.
    Le nom du package/owner est fixé dans le script appelé par le workflow.
 3. Le script n'accepte cette exception que sur **404 de la première page** et
-   égalité stricte avec `RELEASE_TAG`. Il signale que l'absence n'est pas prouvée
+   égalité stricte avec `SPF_RELEASE_TAG`. Il signale que l'absence n'est pas prouvée
    par l'API. Tag existant visible, 401/403/429/5xx, réponse invalide ou erreur à
    une page suivante restent bloquants, même avec approbation.
 4. Retirer immédiatement la variable après cette tentative, succès ou échec.

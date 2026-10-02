@@ -57,7 +57,7 @@ def ensure_new_tag(tag, owner, package, token, bootstrap_tag=None):
 
 if __name__ == "__main__":
     ensure_new_tag(
-        os.environ["RELEASE_TAG"],
+        os.environ["SPF_RELEASE_TAG"],
         "QuentinBtd",
         "spotify-playlist-filler",
         os.environ["GH_TOKEN"],

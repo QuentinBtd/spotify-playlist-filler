@@ -62,8 +62,8 @@ jobs:
       contents: write
       packages: write
     env:
-      RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
-      RELEASE_SHA: ${{ needs.release-please.outputs.sha }}
+      SPF_RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+      SPF_RELEASE_SHA: ${{ needs.release-please.outputs.sha }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,12 +73,12 @@ jobs:
           persist-credentials: false
       - name: Verify exact release commit and unfinished draft
         run: |
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          test -n "$RELEASE_SHA"
-          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
-          test "$(git rev-parse "${RELEASE_TAG}^{commit}")" = "$RELEASE_SHA"
-          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
-          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          [[ "$SPF_RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test -n "$SPF_RELEASE_SHA"
+          test "$(git rev-parse HEAD)" = "$SPF_RELEASE_SHA"
+          test "$(git rev-parse "${SPF_RELEASE_TAG}^{commit}")" = "$SPF_RELEASE_SHA"
+          git merge-base --is-ancestor "$SPF_RELEASE_SHA" origin/main
+          test "$(gh release view "$SPF_RELEASE_TAG" --json isDraft --jq .isDraft)" = true
       - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
         with:
           version: 2026.9.18
@@ -112,21 +112,21 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
       - name: Read back draft assets and registry index
         run: |
-          gh release view "$RELEASE_TAG" --json tagName,isDraft,assets > dist/github-release.json
-          docker buildx imagetools inspect             "ghcr.io/quentinbtd/spotify-playlist-filler:${RELEASE_TAG}" --raw > dist/image-index.json
-          python3 .github/scripts/verify-release.py             --release-json dist/github-release.json --image-index dist/image-index.json             --tag "$RELEASE_TAG"
-          gh release download "$RELEASE_TAG" --pattern '*.tar.gz' --pattern '*.zip' \
+          gh release view "$SPF_RELEASE_TAG" --json tagName,isDraft,assets > dist/github-release.json
+          docker buildx imagetools inspect             "ghcr.io/quentinbtd/spotify-playlist-filler:${SPF_RELEASE_TAG}" --raw > dist/image-index.json
+          python3 .github/scripts/verify-release.py             --release-json dist/github-release.json --image-index dist/image-index.json             --tag "$SPF_RELEASE_TAG"
+          gh release download "$SPF_RELEASE_TAG" --pattern '*.tar.gz' --pattern '*.zip' \
             --pattern checksums.txt --dir dist/readback
           cmp dist/checksums.txt dist/readback/checksums.txt
           cp dist/metadata.json dist/readback/metadata.json
           python3 .github/scripts/verify-release.py --dist dist/readback
       - name: Native smoke test of the published image
         run: |
-          image="ghcr.io/quentinbtd/spotify-playlist-filler:${RELEASE_TAG}"
+          image="ghcr.io/quentinbtd/spotify-playlist-filler:${SPF_RELEASE_TAG}"
           docker pull --platform=linux/amd64 "$image"
           docker run --rm --platform=linux/amd64 --network=none --read-only             --cap-drop=ALL --security-opt=no-new-privileges "$image" --help
           docker image inspect "$image" --format '{{index .RepoDigests 0}}' >> "$GITHUB_STEP_SUMMARY"
       - name: Finalize only after verification and read it back
         run: |
-          gh release edit "$RELEASE_TAG" --draft=false
-          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = false
+          gh release edit "$SPF_RELEASE_TAG" --draft=false
+          test "$(gh release view "$SPF_RELEASE_TAG" --json isDraft --jq .isDraft)" = false
