@@ -1,0 +1,72 @@
+version: 2
+project_name: spotify-playlist-filler
+
+builds:
+  - id: spf
+    main: ./cmd/spotify-playlist-filler
+    binary: spotify-playlist-filler
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    # Avoid default main.version/main.commit/main.date: these symbols do not exist.
+    ldflags:
+      - -s -w
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: spf
+    ids: [spf]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    files:
+      - README.md
+      - LICENSE
+      - config.example.yaml
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: '{{ .Version }}-snapshot'
+
+changelog:
+  disable: true
+
+release:
+  github:
+    owner: QuentinBtd
+    name: spotify-playlist-filler
+  draft: true
+  use_existing_draft: true
+  replace_existing_draft: false
+  replace_existing_artifacts: false
+  mode: keep-existing
+
+dockers_v2:
+  - id: spf
+    ids: [spf]
+    dockerfile: Dockerfile
+    images:
+      - ghcr.io/quentinbtd/spotify-playlist-filler
+    tags:
+      - 'v{{ .Version }}'
+    platforms: [linux/amd64, linux/arm64]
+    # Pass the narrow allowlist into GoReleaser's generated binary-only context.
+    extra_files:
+      - .dockerignore
+    sbom: false
+    flags:
+      - --provenance=false
+    labels:
+      org.opencontainers.image.title: Spotify Playlist Filler
+      org.opencontainers.image.source: https://github.com/QuentinBtd/spotify-playlist-filler
+      org.opencontainers.image.version: '{{ .Version }}'
+      org.opencontainers.image.revision: '{{ .FullCommit }}'
+    # No annotations: the snapshot uses --load (Docker exporter, no OCI index).
+    # OCI labels above remain available in both snapshot and release images.
