@@ -25,17 +25,17 @@ func TestReadPaginationAndSkipUnsupportedItems(t *testing.T) {
 			// Synthetic fixtures for the current contract, not recorded account data.
 			fmt.Fprintf(w, `{"next":%q,"items":[{"item":null},{"is_local":true,"item":{"type":"track","id":"local"}},{"item":{"type":"track","id":"inner-local","is_local":true}},{"item":{"type":"episode","id":"episode"}},{"item":{"type":"future-type","id":"unknown"}},{"item":{"type":"track","id":""}},{"item":{"type":"track","id":"first","album":{"id":"album"},"artists":[{"id":"artist"}]},"track":{"type":"track","id":"legacy-decoy"}}]}`, base+"/playlists/p/items?page=2")
 		case "/artists/a/albums":
-			if r.URL.Query().Get("page") == "2" {
-				fmt.Fprint(w, `{"items":[{"id":"album2"}]}`)
+			if r.URL.Query().Get("offset") == "10" {
+				fmt.Fprint(w, `{"items":[{"id":"album2"}],"next":null,"offset":10,"limit":10,"total":11}`)
 				return
 			}
-			fmt.Fprintf(w, `{"next":%q,"items":[{"id":"album1"}]}`, base+"/artists/a/albums?page=2")
+			fmt.Fprintf(w, `{"next":%q,"items":[%s],"offset":0,"limit":10,"total":11}`, base+"/artists/a/albums?limit=10&offset=10", fixtureRepeatedItems("album1", 10))
 		case "/albums/a/tracks":
-			if r.URL.Query().Get("page") == "2" {
-				fmt.Fprint(w, `{"items":[{"id":"track2"}]}`)
+			if r.URL.Query().Get("offset") == "50" {
+				fmt.Fprint(w, `{"items":[{"id":"track2"}],"next":null,"offset":50,"limit":50,"total":51}`)
 				return
 			}
-			fmt.Fprintf(w, `{"next":%q,"items":[{"id":"track1"}]}`, base+"/albums/a/tracks?page=2")
+			fmt.Fprintf(w, `{"next":%q,"items":[%s],"offset":0,"limit":50,"total":51}`, base+"/albums/a/tracks?limit=50&offset=50", fixtureRepeatedItems("track1", 50))
 		default:
 			http.NotFound(w, r)
 		}
@@ -48,11 +48,11 @@ func TestReadPaginationAndSkipUnsupportedItems(t *testing.T) {
 		t.Fatalf("playlist=%v err=%v", tracks, err)
 	}
 	albums, err := c.ArtistAlbums(context.Background(), "a")
-	if err != nil || len(albums) != 2 || albums[1].ID != "album2" {
+	if err != nil || len(albums) != 11 || albums[10].ID != "album2" {
 		t.Fatalf("albums=%v err=%v", albums, err)
 	}
 	tracks, err = c.AlbumTracks(context.Background(), "a")
-	if err != nil || !reflect.DeepEqual(tracks, []spotify.ID{"track1", "track2"}) {
+	if err != nil || len(tracks) != 51 || tracks[0] != "track1" || tracks[50] != "track2" {
 		t.Fatalf("tracks=%v err=%v", tracks, err)
 	}
 }
@@ -62,11 +62,17 @@ func TestReadErrorsAndSearchPagination(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/search" {
-			if r.URL.Query().Get("offset") == "1" {
-				fmt.Fprint(w, `{"artists":{"items":[{"id":"match","name":"Exact"}]}}`)
+			if r.URL.Query().Get("offset") == "10" {
+				fmt.Fprint(w, `{"artists":{"items":[{"id":"match","name":"Exact"}],"next":null,"offset":10,"limit":10,"total":11}}`)
 				return
 			}
-			fmt.Fprintf(w, `{"artists":{"next":%q,"limit":1,"offset":0,"items":[{"id":"other","name":"Other"}]}}`, base+"/search?offset=1")
+			items := make([]map[string]string, 10)
+			for i := range items {
+				items[i] = map[string]string{"id": "other", "name": "Other"}
+			}
+			query := r.URL.Query()
+			query.Set("offset", "10")
+			_ = json.NewEncoder(w).Encode(map[string]any{"artists": map[string]any{"next": base + "/search?" + query.Encode(), "limit": 10, "offset": 0, "total": 11, "items": items}})
 			return
 		}
 		if r.URL.Path == "/albums/paged/tracks" {

@@ -50,6 +50,9 @@ func (t apiTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	response, err := t.next.RoundTrip(r)
 	if response != nil {
+		if quota, ok := r.Context().Value(quotaMetadataKey{}).(*quotaMetadata); ok {
+			*quota = quotaDetails(response)
+		}
 		if status, ok := r.Context().Value(responseStatusKey{}).(*atomic.Int32); ok {
 			status.Store(int32(response.StatusCode))
 		}
@@ -67,7 +70,7 @@ func secureClient(raw *http.Client, baseURL string) *http.Client {
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	clone.Transport = apiTransport{base: base, next: newReadTransport(transport)}
+	clone.Transport = apiTransport{base: base, next: &catalogueTransport{next: newReadTransport(transport), store: &catalogueStore{}}}
 	redirect := clone.CheckRedirect
 	clone.CheckRedirect = func(r *http.Request, via []*http.Request) error {
 		path, _ := r.Context().Value(playlistPathKey{}).(string)

@@ -9,6 +9,10 @@
 *.spf-token.json
 .spf-token-*
 
+# Private catalogue checkpoints and temporary storage (including overrides)
+*.spf-catalogue.json
+.spf-catalogue-*
+
 # Go build artifacts and test output
 /bin/
 /build/

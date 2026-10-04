@@ -49,7 +49,7 @@ func TestReadRateLimitRetriesBounded(t *testing.T) {
 					fmt.Fprint(w, `{"error":{"status":429,"message":"PRIVATE_RESPONSE"}}`)
 					return
 				}
-				fmt.Fprint(w, `{"items":[],"next":null}`)
+				fmt.Fprintf(w, `{"items":[],"next":null,"offset":0,"limit":%d,"total":0}`, fixtureCatalogueLimit(r))
 			}))
 			defer server.Close()
 			var logs progressLogs
@@ -163,7 +163,7 @@ func TestSharedCooldownSingleRecoveryProbe(t *testing.T) {
 		case <-r.Context().Done():
 			return
 		}
-		fmt.Fprint(w, `{"items":[],"next":null}`)
+		fmt.Fprintf(w, `{"items":[],"next":null,"offset":0,"limit":%d,"total":0}`, fixtureCatalogueLimit(r))
 	}))
 	defer server.Close()
 	logs := &cooldownLogs{waiting: make(chan struct{})}

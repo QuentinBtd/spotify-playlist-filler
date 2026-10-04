@@ -41,37 +41,38 @@ func TestCatalogueDebugPagination(t *testing.T) {
 		if strings.HasPrefix(r.URL.Path, "/albums/") {
 			kind, field = "album tracks", "tracks"
 		}
+		limit := fixtureCatalogueLimit(r)
 		page := 1
 		previous := 0
-		if r.URL.Query().Get("page") == "2" {
+		if r.URL.Query().Get("offset") != "" {
 			page = 2
-			previous = 2
+			previous = limit
 		}
 		want := fmt.Sprintf("msg=\"%s page read started\" page=%d cumulative_%s=%d", kind, page, field, previous)
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("request started without debug stage %q in %s", want, logs.String())
 		}
 		if page == 2 {
-			fmt.Fprint(w, `{"items":[{"id":"third"}],"next":null}`)
+			fmt.Fprintf(w, `{"items":[{"id":"third"}],"next":null,"offset":%d,"limit":%d,"total":%d}`, limit, limit, limit+1)
 			return
 		}
-		fmt.Fprintf(w, `{"items":[{"id":"first"},{"id":"second"}],"next":%q}`, base+r.URL.Path+"?page=2")
+		fmt.Fprintf(w, `{"items":[%s],"next":%q,"offset":0,"limit":%d,"total":%d}`, fixtureRepeatedItems("first", limit), fmt.Sprintf("%s%s?limit=%d&offset=%d", base, r.URL.Path, limit, limit), limit, limit+1)
 	}))
 	defer server.Close()
 	base = server.URL
 	ctx := logging.WithContext(context.Background(), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	c := newClient(server.Client(), base+"/")
-	if albums, err := c.ArtistAlbums(ctx, "a"); err != nil || len(albums) != 3 {
+	if albums, err := c.ArtistAlbums(ctx, "a"); err != nil || len(albums) != 11 {
 		t.Fatalf("albums=%v err=%v", albums, err)
 	}
-	if tracks, err := c.AlbumTracks(ctx, "a"); err != nil || len(tracks) != 3 {
+	if tracks, err := c.AlbumTracks(ctx, "a"); err != nil || len(tracks) != 51 {
 		t.Fatalf("tracks=%v err=%v", tracks, err)
 	}
 	for _, want := range []string{
-		`msg="artist albums page" page=1 albums=2 cumulative_albums=2`,
-		`msg="artist albums page" page=2 albums=1 cumulative_albums=3`,
-		`msg="album tracks page" page=1 tracks=2 cumulative_tracks=2`,
-		`msg="album tracks page" page=2 tracks=1 cumulative_tracks=3`,
+		`msg="artist albums page" page=1 albums=10 cumulative_albums=10`,
+		`msg="artist albums page" page=2 albums=1 cumulative_albums=11`,
+		`msg="album tracks page" page=1 tracks=50 cumulative_tracks=50`,
+		`msg="album tracks page" page=2 tracks=1 cumulative_tracks=51`,
 	} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("missing %q in %s", want, logs.String())
@@ -104,10 +105,10 @@ func TestCatalogueProgressWhileWaiting(t *testing.T) {
 					case <-r.Context().Done():
 						return
 					}
-					fmt.Fprint(w, `{"items":[{"id":"album"}],"next":null}`)
+					fmt.Fprintf(w, `{"items":[{"id":"album"}],"next":null,"offset":0,"limit":%d,"total":1}`, fixtureCatalogueLimit(r))
 				case "/albums/album/tracks":
 					entered <- "album"
-					fmt.Fprint(w, `{"items":[{"id":"keep"}],"next":null}`)
+					fmt.Fprintf(w, `{"items":[{"id":"keep"}],"next":null,"offset":0,"limit":%d,"total":1}`, fixtureCatalogueLimit(r))
 				default:
 					writes++
 					http.Error(w, "unexpected write", 500)

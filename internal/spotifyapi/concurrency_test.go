@@ -41,7 +41,7 @@ func TestConfiguredReadConcurrencyLimits(t *testing.T) {
 						return
 					}
 				}
-				fmt.Fprint(w, `{"items":[],"next":null}`)
+				fmt.Fprintf(w, `{"items":[],"next":null,"offset":0,"limit":%d,"total":0}`, fixtureCatalogueLimit(r))
 			}))
 			defer server.Close()
 			p := config.Playlist{ID: "p"}
@@ -106,7 +106,7 @@ func TestCatalogueBoundedConcurrentReads(t *testing.T) {
 				}
 				switch {
 				case strings.HasPrefix(r.URL.Path, "/playlists/"):
-					fmt.Fprint(w, `{"items":[],"next":null}`)
+					fmt.Fprintf(w, `{"items":[],"next":null,"offset":0,"limit":%d,"total":0}`, fixtureCatalogueLimit(r))
 				case strings.HasPrefix(r.URL.Path, "/artists/"):
 					id := strings.Split(r.URL.Path, "/")[2]
 					entered <- id
@@ -119,7 +119,7 @@ func TestCatalogueBoundedConcurrentReads(t *testing.T) {
 						http.Error(w, `{"error":{"status":403,"message":"fixture"}}`, 403)
 						return
 					}
-					fmt.Fprintf(w, `{"items":[{"id":%q},{"id":"shared"},{"id":"excluded"}],"next":null}`, id)
+					fmt.Fprintf(w, `{"items":[{"id":%q},{"id":"shared"},{"id":"excluded"}],"next":null,"offset":0,"limit":%d,"total":3}`, id, fixtureCatalogueLimit(r))
 				case strings.HasPrefix(r.URL.Path, "/albums/"):
 					id := strings.Split(r.URL.Path, "/")[2]
 					if id == "shared" {
@@ -128,7 +128,7 @@ func TestCatalogueBoundedConcurrentReads(t *testing.T) {
 					if id == "excluded" {
 						t.Error("global excluded album fetched")
 					}
-					fmt.Fprintf(w, `{"items":[{"id":%q}],"next":null}`, id)
+					fmt.Fprintf(w, `{"items":[{"id":%q}],"next":null,"offset":0,"limit":%d,"total":1}`, id, fixtureCatalogueLimit(r))
 				default:
 					http.NotFound(w, r)
 				}

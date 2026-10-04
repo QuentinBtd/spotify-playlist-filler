@@ -92,12 +92,12 @@ func (c *Client) PlaylistTracksWithCount(ctx context.Context, id spotify.ID) ([]
 }
 
 func (c *Client) ArtistAlbums(ctx context.Context, id spotify.ID) (result []app.Album, err error) {
-	ctx, finish := observeStatus(ctx)
+	ctx, finish := observeStatus(catalogueContext(ctx, c.baseURL+"artists/"+url.PathEscape(string(id))+"/albums"))
 	defer func() { err = finish(err) }()
 	logger := logging.FromContext(ctx)
 	pages := 1
 	logger.Debug("artist albums page read started", "page", pages, "cumulative_albums", 0)
-	page, err := c.client.GetArtistAlbums(ctx, id, nil)
+	page, err := c.client.GetArtistAlbums(ctx, id, nil, spotify.Limit(10))
 	if err != nil {
 		return nil, err
 	}
@@ -121,12 +121,12 @@ func (c *Client) ArtistAlbums(ctx context.Context, id spotify.ID) (result []app.
 }
 
 func (c *Client) AlbumTracks(ctx context.Context, id spotify.ID) (result []spotify.ID, err error) {
-	ctx, finish := observeStatus(ctx)
+	ctx, finish := observeStatus(catalogueContext(ctx, c.baseURL+"albums/"+url.PathEscape(string(id))+"/tracks"))
 	defer func() { err = finish(err) }()
 	logger := logging.FromContext(ctx)
 	pages := 1
 	logger.Debug("album tracks page read started", "page", pages, "cumulative_tracks", 0)
-	page, err := c.client.GetAlbumTracks(ctx, id)
+	page, err := c.client.GetAlbumTracks(ctx, id, spotify.Limit(50))
 	if err != nil {
 		return nil, err
 	}
@@ -152,12 +152,12 @@ func (c *Client) AlbumTracks(ctx context.Context, id spotify.ID) (result []spoti
 }
 
 func (c *Client) SearchArtist(ctx context.Context, name string) (id spotify.ID, err error) {
-	ctx, finish := observeStatus(ctx)
+	ctx, finish := observeStatus(catalogueContext(ctx, c.baseURL+"search"))
 	defer func() { err = finish(err) }()
 	offset := 0
 	for {
 		// Search returns a nested artists object; SDK NextPage expects a raw page.
-		result, err := c.client.Search(ctx, name, spotify.SearchTypeArtist, spotify.Offset(offset))
+		result, err := c.client.Search(ctx, name, spotify.SearchTypeArtist, spotify.Offset(offset), spotify.Limit(10))
 		if err != nil {
 			return "", err
 		}

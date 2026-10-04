@@ -22,10 +22,10 @@ func TestSafeOtherReadSteps(t *testing.T) {
 					return
 				}
 				if strings.Contains(r.URL.Path, "/artists/") {
-					fmt.Fprint(w, `{"items":[{"id":"album"}],"next":null}`)
+					fmt.Fprintf(w, `{"items":[{"id":"album"}],"next":null,"offset":0,"limit":%d,"total":1}`, fixtureCatalogueLimit(r))
 					return
 				}
-				fmt.Fprint(w, `{"items":[],"next":null}`)
+				fmt.Fprintf(w, `{"items":[],"next":null,"offset":0,"limit":%d,"total":0}`, fixtureCatalogueLimit(r))
 			}))
 			defer server.Close()
 			p := config.Playlist{ID: "p", Artists: []config.Artist{{ID: "a", Name: "PRIVATE_ARTIST", UseNameInsteadOfURI: op == "search_artist"}}}

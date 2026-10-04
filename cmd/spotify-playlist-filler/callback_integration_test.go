@@ -73,7 +73,7 @@ func TestRunExchangeRedirectAndReuseCacheAcrossPortChanges(t *testing.T) {
 		case strings.Contains(r.URL.Path, "/playlists/"):
 			fmt.Fprint(w, `{"items":[{"item":null}],"next":null}`)
 		case strings.Contains(r.URL.Path, "/artists/"):
-			fmt.Fprint(w, `{"items":[],"next":"","limit":20,"offset":0,"total":0}`)
+			fmt.Fprint(w, `{"items":[],"next":null,"limit":10,"offset":0,"total":0}`)
 		default:
 			t.Errorf("unexpected fixture route: %s", r.URL.Path)
 			w.WriteHeader(500)

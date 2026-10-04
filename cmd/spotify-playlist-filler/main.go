@@ -86,10 +86,18 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) (runErr e
 	ctx = logging.WithContext(ctx, logger)
 	stage = "read current user"
 	catalog := spotifyapi.New(client)
-	_, err = catalog.CurrentUser(ctx)
+	user, err := catalog.CurrentUser(ctx)
 	if err != nil {
 		return fmt.Errorf("read current Spotify user: %w", err)
 	}
+	stage = "catalogue cache"
+	if user == nil || user.ID == "" {
+		return fmt.Errorf("current user has no cache identity")
+	}
+	if err := catalog.EnableCatalogueCache(cfg.CacheDirectory, cfg.CacheTTL, cfg.SpotifyID, user.ID, user.Country); err != nil {
+		return err
+	}
+	logger.Info("catalogue cache configured", "enabled", cfg.CacheTTL != 0)
 	logger.Info("login complete")
 	stage = "synchronization"
 	var capacityErrors []error

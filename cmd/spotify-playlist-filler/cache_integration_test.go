@@ -50,6 +50,7 @@ func TestRunCachedAuthenticationStopsOnRevocationWithoutMutationRetry(t *testing
 				t.Fatal(err)
 			}
 			t.Setenv("SPF_TOKEN_CACHE", dir)
+			t.Setenv("SPF_CACHE_DIRECTORY", filepath.Join(t.TempDir(), "catalogue"))
 			t.Setenv("SPF_SPOTIFY_ID", "test-id")
 			t.Setenv("SPF_LOG_LEVEL", "debug")
 			t.Setenv("SPF_SPOTIFY_SECRET", "synthetic-secret")
@@ -88,7 +89,7 @@ func TestRunCachedAuthenticationStopsOnRevocationWithoutMutationRetry(t *testing
 					w.WriteHeader(status)
 					fmt.Fprintf(w, `{"error":{"status":%d,"message":"synthetic-refresh SECRET_BODY SECRET_TOKEN"}}`, status)
 				default:
-					fmt.Fprint(w, `{"items":[],"next":"","limit":20,"offset":0,"total":0}`)
+					fmt.Fprint(w, `{"items":[],"next":null,"limit":10,"offset":0,"total":0}`)
 				}
 			}))
 			defer server.Close()

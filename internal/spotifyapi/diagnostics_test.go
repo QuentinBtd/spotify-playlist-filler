@@ -33,7 +33,7 @@ func TestSafeCatalogueDiagnostics(t *testing.T) {
 					fmt.Fprintf(w, `{"error":{"status":%d,"message":"SECRET_BODY token=SECRET_TOKEN"}}`, status)
 					return
 				}
-				fmt.Fprint(w, `{"items":[],"next":null}`)
+				fmt.Fprintf(w, `{"items":[],"next":null,"offset":0,"limit":%d,"total":0}`, fixtureCatalogueLimit(r))
 			}))
 			defer server.Close()
 			err := app.FillWithConcurrency(context.Background(), newClient(server.Client(), server.URL+"/"), config.Playlist{ID: "p", Name: "PRIVATE_PLAYLIST", Artists: []config.Artist{{ID: "a", Name: "PRIVATE_ARTIST"}}}, 3)
@@ -77,7 +77,7 @@ func TestSafeCatalogueTimeoutCanceled(t *testing.T) {
 					<-r.Context().Done()
 					return
 				}
-				fmt.Fprint(w, `{"items":[],"next":null}`)
+				fmt.Fprintf(w, `{"items":[],"next":null,"offset":0,"limit":%d,"total":0}`, fixtureCatalogueLimit(r))
 			}))
 			defer server.Close()
 			ctx, cancel := context.WithCancel(context.Background())
@@ -108,17 +108,17 @@ func TestSafeMutationDiagnosticsNoRetry(t *testing.T) {
 					return
 				}
 				if strings.HasPrefix(r.URL.Path, "/artists/") {
-					fmt.Fprint(w, `{"items":[{"id":"album"}],"next":null}`)
+					fmt.Fprintf(w, `{"items":[{"id":"album"}],"next":null,"offset":0,"limit":%d,"total":1}`, fixtureCatalogueLimit(r))
 					return
 				}
 				if strings.HasPrefix(r.URL.Path, "/albums/") {
-					fmt.Fprint(w, `{"items":[{"id":"new"}],"next":null}`)
+					fmt.Fprintf(w, `{"items":[{"id":"new"}],"next":null,"offset":0,"limit":%d,"total":1}`, fixtureCatalogueLimit(r))
 					return
 				}
 				if method == "DELETE" {
 					fmt.Fprint(w, `{"items":[{"item":{"id":"old","type":"track"}}],"next":null}`)
 				} else {
-					fmt.Fprint(w, `{"items":[],"next":null}`)
+					fmt.Fprintf(w, `{"items":[],"next":null,"offset":0,"limit":%d,"total":0}`, fixtureCatalogueLimit(r))
 				}
 			}))
 			defer server.Close()

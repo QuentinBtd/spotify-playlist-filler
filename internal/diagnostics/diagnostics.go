@@ -8,6 +8,7 @@ import (
 	"github.com/zmb3/spotify/v2"
 	"golang.org/x/oauth2"
 	"net"
+	"time"
 )
 
 type Operation string
@@ -28,10 +29,15 @@ func WithPlaylist(ctx context.Context, index int) context.Context {
 }
 
 // StatusError preserves observed response metadata without replacing error identity.
+var ErrRateLimited = errors.New("Spotify read rate limited; resume after retry_at")
+
 type StatusError struct {
-	Err    error
-	Status int
-	OAuth  bool
+	Reason            string
+	RetryAfterSeconds int64
+	RetryAt           time.Time
+	Err               error
+	Status            int
+	OAuth             bool
 }
 
 func (e *StatusError) Error() string { return e.Err.Error() }
@@ -56,7 +62,7 @@ func Wrap(ctx context.Context, err error, op Operation, artist int, unchanged bo
 }
 func (e *Failure) DiagnosticFields() []any {
 	status, kind := classify(e.Err)
-	fields := []any{"operation", string(e.operation), "failure_kind", kind}
+	fields := append([]any{"operation", string(e.operation), "failure_kind", kind}, quotaFields(e.Err)...)
 	if status >= 100 && status <= 599 {
 		fields = append(fields, "http_status", status)
 	}
@@ -123,9 +129,26 @@ func Fields(err error) []any {
 		return failure.DiagnosticFields()
 	}
 	status, kind := classify(err)
-	fields := []any{"failure_kind", kind}
+	fields := append([]any{"failure_kind", kind}, quotaFields(err)...)
 	if status >= 100 && status <= 599 {
 		fields = append(fields, "http_status", status)
+	}
+	return fields
+}
+func quotaFields(err error) []any {
+	var meta *StatusError
+	if !errors.As(err, &meta) || meta.Status != 429 {
+		return nil
+	}
+	var fields []any
+	if meta.Reason == "QUOTA_EXCEEDED" {
+		fields = append(fields, "reason", meta.Reason)
+	}
+	if meta.RetryAfterSeconds > 0 {
+		fields = append(fields, "retry_after_seconds", meta.RetryAfterSeconds)
+	}
+	if !meta.RetryAt.IsZero() {
+		fields = append(fields, "retry_at", meta.RetryAt.UTC().Format(time.RFC3339))
 	}
 	return fields
 }

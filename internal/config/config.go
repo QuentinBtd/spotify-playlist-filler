@@ -8,19 +8,22 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	ReadConcurrency int        `yaml:"-"`
-	OAuthPort       int        `yaml:"-"`
-	LogLevel        string     `yaml:"log_level"`
-	Deprecated      []string   `yaml:"-"`
-	Verbose         bool       `yaml:"verbose"`
-	SpotifyID       string     `yaml:"spotify_id"`
-	SpotifySecret   string     `yaml:"spotify_secret"`
-	Playlists       []Playlist `yaml:"playlists"`
+	CacheTTL        time.Duration `yaml:"-"`
+	CacheDirectory  string        `yaml:"-"`
+	ReadConcurrency int           `yaml:"-"`
+	OAuthPort       int           `yaml:"-"`
+	LogLevel        string        `yaml:"log_level"`
+	Deprecated      []string      `yaml:"-"`
+	Verbose         bool          `yaml:"verbose"`
+	SpotifyID       string        `yaml:"spotify_id"`
+	SpotifySecret   string        `yaml:"spotify_secret"`
+	Playlists       []Playlist    `yaml:"playlists"`
 }
 
 type Playlist struct {
@@ -92,9 +95,11 @@ func Load(path string, lookup func(string) (string, bool)) (Config, error) {
 		Config          `yaml:",inline"`
 		OAuthPort       interface{} `yaml:"oauth_port"`
 		ReadConcurrency interface{} `yaml:"read_concurrency"`
+		CacheTTL        interface{} `yaml:"cache_ttl"`
+		CacheDirectory  interface{} `yaml:"cache_directory"`
 		LegacyID        string      `yaml:"SPOTIFY_ID"`
 		LegacySecret    string      `yaml:"SPOTIFY_SECRET"`
-	}{Config: cfg, OAuthPort: 8080, ReadConcurrency: 3}
+	}{Config: cfg, OAuthPort: 8080, ReadConcurrency: 3, CacheTTL: "24h", CacheDirectory: ""}
 	if err := yaml.UnmarshalStrict(data, &raw); err != nil {
 		// Decoder diagnostics can contain credential values or arbitrary YAML keys.
 		return cfg, fmt.Errorf("decode config: invalid YAML, unknown/duplicate fields or invalid field types")
@@ -111,6 +116,24 @@ func Load(path string, lookup func(string) (string, bool)) (Config, error) {
 		}
 	}
 	cfg = raw.Config
+	ttlText, ttlOK := raw.CacheTTL.(string)
+	if value, exists := lookup("SPF_CACHE_TTL"); exists {
+		ttlText, ttlOK = value, true
+	}
+	ttl, ttlErr := time.ParseDuration(ttlText)
+	if !ttlOK || ttlErr != nil || ttl < 0 || ttl > 30*24*time.Hour {
+		return cfg, fmt.Errorf("cache_ttl / SPF_CACHE_TTL must be a duration from 0s to 720h")
+	}
+	cfg.CacheTTL = ttl
+	directory, directoryOK := raw.CacheDirectory.(string)
+	_, explicitDirectory := keys["cache_directory"]
+	if value, exists := lookup("SPF_CACHE_DIRECTORY"); exists {
+		directory, directoryOK, explicitDirectory = value, true, true
+	}
+	if !directoryOK || explicitDirectory && strings.TrimSpace(directory) == "" {
+		return cfg, fmt.Errorf("cache_directory / SPF_CACHE_DIRECTORY must be a non-empty path")
+	}
+	cfg.CacheDirectory = directory
 	concurrency, ok := raw.ReadConcurrency.(int)
 	if value, exists := lookup("SPF_READ_CONCURRENCY"); exists && value != "" {
 		concurrency, err = strconv.Atoi(value)

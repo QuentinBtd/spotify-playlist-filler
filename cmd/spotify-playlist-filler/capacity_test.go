@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -69,15 +70,21 @@ func TestRunCapacitySkipsUnchangedAndContinues(t *testing.T) {
 			if strings.Contains(r.URL.Path, artist) {
 				album = "large"
 			}
-			fmt.Fprintf(w, `{"items":[{"id":%q}],"next":null}`, album)
+			fmt.Fprintf(w, `{"items":[{"id":%q}],"next":null,"offset":0,"limit":%d,"total":1}`, album, fixtureCatalogueLimit(r))
 		case strings.Contains(r.URL.Path, "/albums/large/"):
-			items := make([]map[string]string, 10001)
+			offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+			end := min(offset+50, 10001)
+			items := make([]map[string]string, end-offset)
 			for i := range items {
-				items[i] = map[string]string{"id": fmt.Sprintf("track%d", i)}
+				items[i] = map[string]string{"id": fmt.Sprintf("track%d", offset+i)}
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": items, "next": nil})
+			var next any
+			if end < 10001 {
+				next = "https://api.spotify.com/v1/albums/large/tracks?limit=50&offset=" + strconv.Itoa(end)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": items, "next": next, "offset": offset, "limit": 50, "total": 10001})
 		case strings.Contains(r.URL.Path, "/albums/small/"):
-			fmt.Fprint(w, `{"items":[{"id":"new"}],"next":null}`)
+			fmt.Fprintf(w, `{"items":[{"id":"new"}],"next":null,"offset":0,"limit":%d,"total":1}`, fixtureCatalogueLimit(r))
 		default:
 			http.NotFound(w, r)
 		}

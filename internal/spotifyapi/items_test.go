@@ -229,7 +229,7 @@ func TestNewSharesAuthenticatedHTTPClient(t *testing.T) {
 		switch r.URL.Path {
 		case "/v1/playlists/p/items":
 			if r.Method == http.MethodGet {
-				fmt.Fprint(w, `{"items":[],"next":null}`)
+				fmt.Fprintf(w, `{"items":[],"next":null,"offset":0,"limit":%d,"total":0}`, fixtureCatalogueLimit(r))
 				return
 			}
 			if r.Method == http.MethodPost {
@@ -237,7 +237,7 @@ func TestNewSharesAuthenticatedHTTPClient(t *testing.T) {
 			}
 			fmt.Fprint(w, `{"snapshot_id":"fixture"}`)
 		case "/v1/artists/a/albums":
-			fmt.Fprint(w, `{"items":[],"next":null}`)
+			fmt.Fprintf(w, `{"items":[],"next":null,"offset":0,"limit":%d,"total":0}`, fixtureCatalogueLimit(r))
 		default:
 			t.Errorf("unexpected request: %s", r.URL)
 			http.NotFound(w, r)

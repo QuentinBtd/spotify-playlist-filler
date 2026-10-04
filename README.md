@@ -70,6 +70,8 @@ spotify_id: ""     # Prefer SPF_SPOTIFY_ID
 spotify_secret: "" # Prefer SPF_SPOTIFY_SECRET
 log_level: info     # debug, info, warn or error
 read_concurrency: 3 # 1..8; SPF_READ_CONCURRENCY overrides this
+cache_ttl: 24h       # Duration 0s..720h; SPF_CACHE_TTL overrides; 0s disables
+# cache_directory: /private/path/catalogue # Optional SPF_CACHE_DIRECTORY override
 oauth_port: 8080  # Optional; callback port, integer 1..65535
 playlists:
   - name: "My playlist"
@@ -236,7 +238,7 @@ playlist before rerunning. HTTP 403 alone is not treated as token revocation.
 
 #### Docker persistence and limits
 
-This branch does not define a Docker image. When using an image built separately,
+The release Dockerfile defines a minimal image. When using that image,
 authorize with the native CLI first, then bind-mount the same private directory at
 runtime and set `SPF_TOKEN_CACHE` to its container path. For example, add these
 options to your image's normal `docker run` command:
@@ -259,6 +261,110 @@ container's loopback-only callback accessible from a host browser; this change
 does not add a remote/headless login flow. Docker Desktop bind mounts may not
 preserve Unix permissions; use a suitably protected native volume instead. No
 Docker runtime or real Spotify account verification was performed for this change.
+
+### Persistent catalogue cache and quota recovery
+
+Catalogue persistence is **enabled by default**, with a **24-hour TTL per page**.
+`cache_ttl` / `SPF_CACHE_TTL` accepts a Go duration from `0s` to `720h`; invalid,
+negative, null, numeric YAML or explicitly empty environment values are rejected.
+Set **`cache_ttl: 0s`** or **`SPF_CACHE_TTL=0s`** to disable both catalogue persistence
+and saved cooldowns. Schema/pagination validation and bounded GET retries remain.
+`cache_directory` / `SPF_CACHE_DIRECTORY` selects a dedicated directory; explicitly
+empty paths are invalid. Without it, SPF uses
+`os.UserCacheDir()/spotify-playlist-filler/catalogue`, separate from OAuth records.
+An explicitly disabled cache does not access its directory.
+
+Only **artist-album, album-track and artist-search pages** are cached. Successful
+empty results are valid checkpoints. Playlist `/items` reads and mutations,
+`CurrentUser` and OAuth are **never cached**. Every launch still authenticates,
+reads the current user and reads the current playlist. Keys hash the application,
+user, current user's country, API origin, SDK-default market behavior and exact
+request path/query (including pagination/settings). Neither Authorization headers
+nor bearer tokens enter keys, records or logs. Records retain only synchronization
+fields: IDs, artist names needed for exact search, counts and validated next URLs.
+These are private plaintext catalogue data, not an encrypted credential store.
+
+Each successful page is saved independently and atomically, with a random
+page-generation ID and a binding to its predecessor's generation. Before using
+any cached page, SPF validates and pins the **entire entity's complete chain**
+in memory (bounded to 4,096 pages / 64 MiB). Only a fully valid, still-fresh chain
+is reused, with **zero remote catalogue GETs**. If any page is missing, expired,
+corrupt, incomplete or generation-incompatible, **all pages of that entity are
+fetched live in the same invocation**; cached prefixes are never mixed with live
+tails. There are no per-page generation-change errors or manual relaunches.
+
+After a later-page failure or HTTP 429, **other completed entities** (artist album
+lists and completed albums) remain reusable. The incomplete entity is refetched
+from its first page on retry: **missing-page-only resume is not supported**.
+Random predecessor bindings prevent old tails or interleaved concurrent writers
+from completing a new partial chain; such chains are misses, potentially requiring
+extra reads. Pinned cached bodies cannot change underneath the traversal.
+**A page is not a complete catalogue**: mandatory integer counts, request-matching
+offsets/limits, unchanged query settings, contiguous progression, stable totals
+and terminal completeness remain mandatory before any playlist write.
+Search may return the first validated exact name match without reading later
+pages, but an incomplete search chain is not reused on the next invocation.
+Invalid/truncated/version-mismatched records are misses with sanitized warnings;
+expired records are misses, never stale fallback. Error responses are not
+catalogue entries. Completion is established by validating the entire bound
+chain, not by a separate manifest. This is bounded-age entity reuse, **not a
+Spotify snapshot guarantee**: Spotify may change during an all-live traversal.
+Deleting this dedicated directory with SPF stopped forces fresh reads.
+
+Unix directories must be 0700 and files 0600. Symlinks (including ancestors),
+`..` path components, non-regular target files and insecure permissions fail
+closed. New files use private modes, same-directory temporary writes, fsync and
+atomic rename through `os.Root`. Use a private local filesystem; Windows users
+must enforce user-only ACLs. Entries/responses are bounded to 128 KiB, and disk
+writes are capped at 4,096 records / 64 MiB per dedicated directory. No automatic
+pruning is performed: when full or another process holds the write lock, validated
+fresh reads remain usable but persistence is skipped with `storage_unavailable`.
+Other unsafe-path/I/O failures stop processing before playlist writes. After a
+crash, stop all SPF processes before removing a leftover `.spf-catalogue-lock`
+directory. Separate atomic files cannot lose unrelated concurrent checkpoints;
+this is not a distributed single-flight cache or cross-process quota scheduler.
+The OAuth cache still requires only one CLI process per authorization cache.
+
+Final HTTP 429 diagnostics expose only allowlisted `reason=QUOTA_EXCEEDED`, valid
+integer `retry_after_seconds`, and UTC `retry_at` (when supplied by Spotify).
+Arbitrary reasons/messages/bodies are never logged. A catalogue 429 with a delay
+**above 30 seconds and at most 30 days** also saves a namespaced cooldown, independent
+of page TTL. On restart complete fresh cached entities are served **before** checking cooldown;
+only required remote catalogue reads are blocked until that timestamp, immediately
+returning a safe 429 rather than sleeping for hours. Missing/invalid Retry-After
+or delays above 30 days are not persisted or guessed. Clearing/disabling the cache
+also clears/bypasses that protection. It does not cover other applications, users,
+other cache directories, OAuth, current-user reads or playlist reads; those still
+contact Spotify. It cannot change Spotify's application quota or grant API access.
+
+Catalogue requests use the current documented maxima: **10** for
+[artist albums](https://developer.spotify.com/documentation/web-api/reference/get-an-artists-albums)
+and [search](https://developer.spotify.com/documentation/web-api/reference/search),
+**50** for [album tracks](https://developer.spotify.com/documentation/web-api/reference/get-an-albums-tracks).
+Pagination, worker concurrency **3**, the shared per-run album cache, deterministic
+merging and the 10,000-item preflight are unchanged. No removed batch endpoints or
+replacement applications are used.
+
+#### Docker catalogue persistence
+
+The release Dockerfile uses `scratch` and defaults to UID/GID 65532. At runtime,
+mount a private, persistent host directory owned by the selected runtime UID and
+set explicit paths (a scratch image need not have an OS cache home):
+
+```sh
+--user "$(id -u):$(id -g)" \
+--mount "type=bind,src=$HOME/.cache/spotify-playlist-filler,dst=/var/lib/spf" \
+-e SPF_TOKEN_CACHE=/var/lib/spf \
+-e SPF_CACHE_DIRECTORY=/var/lib/spf/catalogue
+```
+
+Initialize the host directory with mode 0700; pass config and credentials only at
+runtime. Native authorization can populate the OAuth cache first, as described
+above. The catalogue subdirectory is created privately. Removing an ephemeral
+container without a volume loses checkpoints and cooldown state. No cache data
+belongs in image layers or source control: `.dockerignore` remains deny-by-default
+and `.gitignore` excludes generated catalogue records/temporary names. No live
+Spotify or Docker runtime test is claimed.
 
 ### Synchronization behavior and safety
 

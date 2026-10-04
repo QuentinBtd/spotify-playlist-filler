@@ -6,6 +6,8 @@ spotify_secret: ""
 spotify_id: ""
 log_level: info # debug, info, warn or error; SPF_LOG_LEVEL overrides this
 read_concurrency: 3 # 1..8 catalogue readers; SPF_READ_CONCURRENCY overrides this
+cache_ttl: 24h # 0s disables catalogue persistence and saved cooldown; SPF_CACHE_TTL
+# cache_directory: /private/path/catalogue # SPF_CACHE_DIRECTORY overrides; default OS cache
 playlists:
   - name: "Playlist Filler Test"
     uri: "3RiBOmtagQlYUd2XOeWPUd"
