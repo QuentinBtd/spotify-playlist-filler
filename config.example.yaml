@@ -1,0 +1,26 @@
+# Copy to config.yaml and select your own playlists before running.
+# Prefer SPF_SPOTIFY_ID and SPF_SPOTIFY_SECRET environment variables.
+# Register http://127.0.0.1:PORT/callback for your chosen port in Spotify.
+oauth_port: 8080 # SPF_OAUTH_PORT overrides this; integer 1..65535
+spotify_secret: ""
+spotify_id: ""
+log_level: info # debug, info, warn or error; SPF_LOG_LEVEL overrides this
+read_concurrency: 3 # 1..8 catalogue readers; SPF_READ_CONCURRENCY overrides this
+cache_ttl: 24h # 0s disables catalogue persistence and saved cooldown; SPF_CACHE_TTL
+# cache_directory: /private/path/catalogue # SPF_CACHE_DIRECTORY overrides; default OS cache
+playlists:
+  - name: "Playlist Filler Test"
+    uri: "3RiBOmtagQlYUd2XOeWPUd"
+    shuffle_order: false # true removes supported music tracks and re-adds them shuffled
+    artists:
+      - name: "Rick Astley" # Optional unless searching by name
+        uri: "0gxyHStUsqpMadRV0Di1Qt"
+        use_name_instead_of_uri: false
+        albums_to_skip:
+          - name: "Beautiful Life" # Informational; exclusion uses the ID
+            uri: "3IqiZzsC1gef7qgvCXTqTj"
+      - name: "Imagine Dragons"
+        use_name_instead_of_uri: true
+    albums_to_skip:
+      - name: "Rick Astley - 50"
+        uri: "7IW3NEq3Fxtm7FhOcosnBy"

@@ -1,0 +1,111 @@
+# Toolchain and all development commands live here.
+[tools]
+go = "1.27.1"
+
+[task_config]
+dir = "{{config_root}}"
+
+[tasks.help]
+description = "List available development tasks"
+run = "mise tasks"
+
+[tasks.default]
+description = "Show task help"
+depends = ["help"]
+
+[tasks.fmt]
+description = "Format Go packages and report changed files"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+changed=$(go fmt ./...)
+if [[ -n "$changed" ]]; then
+    printf 'Formatted Go files:\n%s\n' "$changed"
+else
+    printf '%s\n' 'Go files are already formatted.'
+fi
+'''
+
+[tasks.test]
+description = "Run all unit tests (no real Spotify account)"
+run = "go test ./..."
+
+[tasks.vet]
+description = "Run Go static analysis"
+run = "go vet ./..."
+
+[tasks.check]
+description = "Run tests, vet and a fail-safe formatting check"
+depends = ["test", "vet"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+# Assignment preserves gofmt's exit status; errors must never pass as clean.
+unformatted=$(gofmt -l cmd internal)
+if [[ -n "$unformatted" ]]; then
+    printf 'Unformatted Go files:\n%s\nRun mise run fmt\n' "$unformatted" >&2
+    exit 1
+fi
+printf '%s\n' 'Tests, vet and Go formatting checks passed.'
+'''
+
+[tasks.race]
+description = "Run all tests with the race detector (requires system C compiler)"
+run = "go test -race ./..."
+
+[tasks.build]
+description = "Build the local CLI into bin/spotify-playlist-filler"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p bin
+go build -trimpath -o bin/spotify-playlist-filler ./cmd/spotify-playlist-filler
+'''
+
+[tasks."build-all"]
+description = "Cross-build six desktop/server targets using VERSION; optional binary-name argument"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+package=${1:-spotify-playlist-filler}
+if [[ $# -gt 1 || ! "$package" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
+    printf '%s\n' 'usage: mise run build-all [binary-name]' >&2
+    exit 2
+fi
+IFS= read -r version < VERSION
+mkdir -p build
+for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+    os=${target%/*}
+    arch=${target#*/}
+    output="build/${package}-${version}-${os}-${arch}"
+    if [[ "$os" == windows ]]; then
+        output+=.exe
+    fi
+    printf 'Building %s -> %s\n' "$target" "$output"
+    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -o "$output" ./cmd/spotify-playlist-filler
+done
+'''
+
+[tasks.run]
+description = "Run the CLI with SPF_CONFIG (default config.yaml, legacy config.yml fallback); accepts extra CLI arguments"
+alias = "exec"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+# CONFIG is a deprecated fallback; the canonical SPF_CONFIG wins.
+config_path=${SPF_CONFIG:-${CONFIG:-}}
+if [[ -n "$config_path" ]]; then
+    exec go run ./cmd/spotify-playlist-filler -config "$config_path" "$@"
+fi
+# Let the CLI resolve config.yaml / legacy fallback and explicit arguments.
+exec go run ./cmd/spotify-playlist-filler "$@"
+'''
+
+[tasks.clean]
+description = "Remove only bin/, build/ and coverage.out (never the Go cache)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+rm -rf -- bin build coverage.out
+printf '%s\n' 'Removed local bin/, build/ and coverage.out artifacts only.'
+'''

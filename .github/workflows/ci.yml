@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, refactor/go-project-conventions]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        with:
+          version: 2026.9.18
+          install_args: go
+          cache: false
+      - name: Offline release script regression tests
+        run: python3 -m unittest discover -s .github/scripts/tests -v
+      - name: Shared development checks
+        run: |
+          mise run check
+          mise run race
+          mise run build
+      - name: Check module metadata
+        run: |
+          mise exec -- go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Validate release configuration
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: check
+      - name: Set up Buildx (no target-architecture RUN in Dockerfile)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.37.2
+      # Snapshot loads separate architecture-suffixed local images, never pushes.
+      # Do not use --skip=publish: that would also skip Docker construction.
+      - name: Snapshot archives and Docker images (no publication)
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: release --snapshot --clean
+      - name: Verify archives and checksums
+        run: python3 .github/scripts/verify-release.py
+      - name: Native amd64 image smoke test
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("dist/metadata.json"))["version"])')
+          docker run --rm --network=none --read-only --cap-drop=ALL             --security-opt=no-new-privileges             "ghcr.io/quentinbtd/spotify-playlist-filler:v${version}-amd64" --help
